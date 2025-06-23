@@ -1,0 +1,200 @@
+<?php
+/**
+ * Polygon.io API Client for Journey to Wealth plugin.
+ *
+ * Handles communication with the Polygon.io API to fetch stock data.
+ * Implements caching and specific error handling.
+ *
+ * @link       https://example.com/journey-to-wealth/
+ * @since      1.0.0
+ *
+ * @package    Journey_To_Wealth
+ * @subpackage Journey_To_Wealth/includes/api
+ */
+
+// Prevent direct access to this file.
+if ( ! defined( 'WPINC' ) ) {
+    die;
+}
+
+class Polygon_Client {
+
+    private $api_key;
+    private $base_url = 'https://api.polygon.io';
+    private $cache_expiration = 3600; // 1 hour for most data
+
+    public function __construct( $api_key ) {
+        $this->api_key = $api_key;
+    }
+
+    /**
+     * Centralized function to perform API requests.
+     */
+    private function do_request( $endpoint, $params = [] ) {
+        $params['apiKey'] = $this->api_key;
+        $url = $this->base_url . $endpoint . '?' . http_build_query($params);
+
+        $response = wp_remote_get( $url, array( 'timeout' => 20 ) );
+
+        if ( is_wp_error( $response ) ) {
+            return new WP_Error( 'http_request_failed', __( 'Failed to connect to Polygon.io API.', 'journey-to-wealth' ) . ' ' . $response->get_error_message() );
+        }
+
+        $body = wp_remote_retrieve_body( $response );
+        if ( empty( $body ) ) {
+            return new WP_Error( 'empty_response', __( 'Received empty response from Polygon.io API.', 'journey-to-wealth' ) );
+        }
+
+        $data = json_decode( $body, true );
+        if ( json_last_error() !== JSON_ERROR_NONE ) {
+            return new WP_Error( 'json_decode_error', __( 'Failed to decode JSON response from Polygon.io API.', 'journey-to-wealth' ) );
+        }
+        
+        // Polygon.io error handling
+        if ( isset($data['status']) && ($data['status'] === 'ERROR' || $data['status'] === 'DELAYED') ) {
+            return new WP_Error( 'polygon_api_error', isset($data['error']) ? esc_html($data['error']) : 'Unknown Polygon.io API error.');
+        }
+        if ( isset($data['message']) ) { // Some errors might come this way
+            return new WP_Error( 'polygon_api_message', esc_html($data['message']));
+        }
+
+        return $data;
+    }
+
+    /**
+     * Fetches company details like name, market cap, shares outstanding.
+     */
+    public function get_ticker_details( $ticker ) {
+        $ticker = sanitize_text_field( strtoupper( $ticker ) );
+        $transient_key = 'jtw_poly_details_' . $ticker;
+        
+        $cached_data = get_transient($transient_key);
+        if (false !== $cached_data) {
+            return $cached_data;
+        }
+
+        $endpoint = '/v3/reference/tickers/' . $ticker;
+        $data = $this->do_request($endpoint);
+
+        if (is_wp_error($data)) {
+            return $data;
+        }
+
+        if (!isset($data['results'])) {
+             return new WP_Error( 'no_ticker_details', sprintf( __( 'No ticker details found for %s.', 'journey-to-wealth' ), $ticker ) );
+        }
+
+        $results = $data['results'];
+        set_transient($transient_key, $results, $this->cache_expiration);
+        return $results;
+    }
+    
+    /**
+     * Fetches the previous day's close price for a ticker.
+     */
+    public function get_previous_close( $ticker ) {
+        $ticker = sanitize_text_field( strtoupper( $ticker ) );
+        $transient_key = 'jtw_poly_prev_close_' . $ticker;
+
+        $cached_data = get_transient($transient_key);
+        if (false !== $cached_data) {
+            return $cached_data;
+        }
+
+        $endpoint = '/v2/aggs/ticker/' . $ticker . '/prev';
+        $data = $this->do_request($endpoint);
+        
+        if (is_wp_error($data)) {
+            return $data;
+        }
+
+        if (!isset($data['results'][0]) || !isset($data['results'][0]['c'])) {
+            return new WP_Error( 'no_prev_close', sprintf( __( 'No previous close price found for %s.', 'journey-to-wealth' ), $ticker ) );
+        }
+        
+        $results = $data['results'][0];
+        set_transient($transient_key, $results, $this->cache_expiration);
+        return $results;
+    }
+
+    /**
+     * Fetches financial statements (Income, Balance Sheet, Cash Flow).
+     * timeframe can be 'annual' or 'quarterly'.
+     */
+    public function get_financials( $ticker, $timeframe = 'annual' ) {
+        $ticker = sanitize_text_field( strtoupper( $ticker ) );
+        $limit = ($timeframe === 'annual') ? 10 : 12;
+        $transient_key = 'jtw_poly_financials_' . $ticker . '_' . $timeframe . '_' . $limit;
+        
+        $cached_data = get_transient($transient_key);
+        if (false !== $cached_data) {
+            return $cached_data;
+        }
+        
+        $params = ['ticker' => $ticker, 'timeframe' => $timeframe, 'limit' => $limit];
+        $endpoint = '/vX/reference/financials';
+        $data = $this->do_request($endpoint, $params);
+        
+        if (is_wp_error($data)) {
+            return $data;
+        }
+        
+        if (!isset($data['results'])) {
+            return new WP_Error( 'no_financials_data', sprintf( __( 'Financials data is not available. This endpoint may require a paid Polygon.io plan.', 'journey-to-wealth' ), $timeframe, $ticker ) );
+        }
+
+        $results = $data['results'];
+        set_transient($transient_key, $results, $this->cache_expiration);
+        return $results;
+    }
+
+    /**
+     * Fetches historical daily stock prices.
+     */
+    public function get_daily_aggregates($ticker, $timespan = 'year', $multiplier = 5) {
+        $ticker = sanitize_text_field( strtoupper( $ticker ) );
+        $from = date('Y-m-d', strtotime("-{$multiplier} {$timespan}"));
+        $to = date('Y-m-d');
+        $transient_key = 'jtw_poly_aggs_' . md5($ticker . $from . $to);
+        
+        $cached_data = get_transient($transient_key);
+        if (false !== $cached_data) return $cached_data;
+
+        $endpoint = "/v2/aggs/ticker/{$ticker}/range/1/day/{$from}/{$to}";
+        $params = ['adjusted' => 'true', 'sort' => 'asc', 'limit' => 50000];
+        $data = $this->do_request($endpoint, $params);
+
+        if (is_wp_error($data)) return $data;
+        
+        if (!isset($data['results'])) {
+            return new WP_Error('no_aggregates_data', 'No historical price data found.');
+        }
+
+        set_transient($transient_key, $data['results'], $this->cache_expiration);
+        return $data['results'];
+    }
+
+    /**
+     * Fetches historical dividend data.
+     */
+    public function get_dividends($ticker) {
+        $ticker = sanitize_text_field( strtoupper( $ticker ) );
+        $transient_key = 'jtw_poly_divs_' . $ticker;
+
+        $cached_data = get_transient($transient_key);
+        if (false !== $cached_data) return $cached_data;
+
+        $endpoint = '/v3/reference/dividends';
+        $params = ['ticker' => $ticker, 'limit' => 1000]; // Get a large number of historical dividends
+        $data = $this->do_request($endpoint, $params);
+
+        if (is_wp_error($data)) return $data;
+
+        if (!isset($data['results'])) {
+            return new WP_Error('no_dividends_data', 'No dividend data found.');
+        }
+        
+        set_transient($transient_key, $data['results'], $this->cache_expiration);
+        return $data['results'];
+    }
+}
