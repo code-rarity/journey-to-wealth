@@ -71,10 +71,10 @@ class Journey_To_Wealth_Public {
         return $output;
     }
 
-    private function find_financial_value($financial_statement_section, $concept_name) {
+    private function find_financial_value($financial_statement_section, $label) {
         if (!is_array($financial_statement_section)) return null;
         foreach ($financial_statement_section as $item) {
-            if (isset($item['concept']) && strcasecmp($item['concept'], $concept_name) === 0 && isset($item['value'])) {
+            if (isset($item['label']) && strcasecmp($item['label'], $label) === 0 && isset($item['value'])) {
                 return is_numeric($item['value']) ? (float)$item['value'] : null;
             }
         }
@@ -263,7 +263,9 @@ class Journey_To_Wealth_Public {
 
         $eps = $this->find_financial_value($latest_income_statement, 'Diluted Earnings Per Share');
         $revenue = $this->find_financial_value($latest_income_statement, 'Revenues');
-        $ebitda = $this->find_financial_value($latest_income_statement, 'EBITDA');
+        $operating_income = $this->find_financial_value($latest_income_statement, 'Operating Income/Loss');
+        $da = $this->find_financial_value($latest_income_statement, 'Depreciation, Depletion and Amortization');
+        $ebitda = (is_numeric($operating_income) && is_numeric($da)) ? $operating_income + $da : $this->find_financial_value($latest_income_statement, 'EBITDA');
         $book_value = $this->find_financial_value($latest_balance_sheet, 'Equity');
 
         $metrics_data = [
