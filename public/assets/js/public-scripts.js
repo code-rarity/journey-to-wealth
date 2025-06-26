@@ -3,7 +3,7 @@
  *
  * This script powers:
  * 1. The header lookup form, which handles live search and redirects to the analysis page.
- * 2. The main analyzer page, which detects the URL parameter and auto-fetches data on load.
+ * 2. The main analyzer page, which detects the URL parameter, auto-fetches data, and renders charts.
  *
  * @link       https://example.com/journey-to-wealth/
  * @since      1.0.0
@@ -35,46 +35,334 @@
     }
 
     /**
+     * Formats large numbers into a compact representation (K, M, B, T).
+     * @param {number} num The number to format.
+     * @returns {string} The formatted number as a string.
+     */
+    function formatLargeNumber(num) {
+        if (typeof num !== 'number' || num === 0) return '0';
+        const absNum = Math.abs(num);
+        const sign = num < 0 ? "-" : "";
+
+        if (absNum >= 1.0e+12) return sign + (absNum / 1.0e+12).toFixed(2) + 'T';
+        if (absNum >= 1.0e+9) return sign + (absNum / 1.0e+9).toFixed(2) + 'B';
+        if (absNum >= 1.0e+6) return sign + (absNum / 1.0e+6).toFixed(2) + 'M';
+        if (absNum >= 1.0e+3) return sign + (absNum / 1.0e+3).toFixed(1) + 'K';
+        return sign + num.toFixed(2);
+    }
+
+    /**
      * Initializes the interactive PEG/PEGY calculator on the analysis page.
      */
-    function initializePegPegyCalculator($container) {
-        const $pegCard = $container.find('.jtw-interactive-card');
-        if (!$pegCard.length) return;
-        
-        const $growthInput = $pegCard.find('#jtw-peg-growth-rate');
-        
-        function updatePegAndPegy() {
-            const pe = parseFloat($pegCard.data('pe-value'));
-            const dividendYield = parseFloat($pegCard.data('dividend-yield'));
+    function initializePegPegySimulator($container) {
+        const $card = $container.find('.jtw-interactive-card');
+        if (!$card.length) return;
+    
+        const $stockPriceInput = $('#jtw-sim-stock-price');
+        const $epsInput = $('#jtw-sim-eps');
+        const $growthInput = $('#jtw-sim-growth-rate');
+        const $dividendInput = $('#jtw-sim-dividend-yield');
+    
+        const $pegValueEl = $('#jtw-peg-value');
+        const $pegyValueEl = $('#jtw-pegy-value');
+    
+        function updateRatios() {
+            const stockPrice = parseFloat($stockPriceInput.val());
+            const eps = parseFloat($epsInput.val());
             const growthRate = parseFloat($growthInput.val());
-            const pegValueEl = $pegCard.find('#jtw-peg-value');
-            if (pe && growthRate && growthRate > 0) {
-                const peg = pe / growthRate;
-                pegValueEl.text(peg.toFixed(2)).removeClass('text-green-600 text-yellow-600 text-red-600');
-                if (peg < 1.0) { pegValueEl.addClass('text-green-600');
-                } else if (peg <= 2.0) { pegValueEl.addClass('text-yellow-600');
-                } else { pegValueEl.addClass('text-red-600'); }
-            } else {
-                pegValueEl.text('N/A').removeClass('text-green-600 text-yellow-600 text-red-600');
+            const dividendYield = parseFloat($dividendInput.val());
+    
+            let pe = NaN;
+            if (stockPrice > 0 && eps > 0) {
+                pe = stockPrice / eps;
             }
-            const pegyValueEl = $pegCard.find('#jtw-pegy-value');
-            if (pe && !isNaN(dividendYield) && !isNaN(growthRate)) {
-                const pegyDenominator = growthRate + dividendYield;
-                if (pegyDenominator > 0) {
-                    const pegy = pe / pegyDenominator;
-                    pegyValueEl.text(pegy.toFixed(2)).removeClass('text-green-600 text-yellow-600 text-red-600');
-                    if (pegy < 1.0) { pegyValueEl.addClass('text-green-600');
-                    } else if (pegy <= 1.5) { pegyValueEl.addClass('text-yellow-600');
-                    } else { pegyValueEl.addClass('text-red-600'); }
-                } else {
-                     pegyValueEl.text('N/A').removeClass('text-green-600 text-yellow-600 text-red-600');
-                }
+    
+            if (!isNaN(pe) && growthRate > 0) {
+                const peg = pe / growthRate;
+                $pegValueEl.text(peg.toFixed(2));
             } else {
-                pegyValueEl.text('N/A').removeClass('text-green-600 text-yellow-600 text-red-600');
+                $pegValueEl.text('-');
+            }
+    
+            if (!isNaN(pe) && (growthRate + dividendYield) > 0) {
+                const pegy = pe / (growthRate + dividendYield);
+                $pegyValueEl.text(pegy.toFixed(2));
+            } else {
+                $pegyValueEl.text('-');
             }
         }
-        $growthInput.on('input', updatePegAndPegy);
-        updatePegAndPegy();
+    
+        $container.on('input', '.jtw-sim-input', updateRatios);
+        updateRatios(); // Initial calculation
+    }
+
+    /**
+     * Initializes the Intrinsic Valuation histogram-style chart.
+     */
+    function initializeValuationChart($container) {
+        const $chartContainer = $container.find('#jtw-valuation-chart-container');
+        if (!$chartContainer.length) return;
+        
+        const currentPrice = parseFloat($chartContainer.data('current-price'));
+        const fairValue = parseFloat($chartContainer.data('fair-value'));
+        const percentageDiff = parseFloat($chartContainer.data('percentage-diff'));
+
+        const undervaluedLimit = fairValue * 0.8;
+        const overvaluedLimit = fairValue * 1.2;
+        const maxValue = Math.max(currentPrice, overvaluedLimit) * 1.1; 
+
+        const undervaluedPercent = (undervaluedLimit / maxValue) * 100;
+        const fairValuePercent = ((overvaluedLimit - undervaluedLimit) / maxValue) * 100;
+        
+        $container.find('.jtw-range-undervalued').css('width', undervaluedPercent + '%');
+        $container.find('.jtw-range-fair').css('width', fairValuePercent + '%');
+        $container.find('.jtw-range-overvalued').css('width', (100 - undervaluedPercent - fairValuePercent) + '%');
+
+        const ctx = document.getElementById('jtw-valuation-chart');
+        if (!ctx) return;
+        
+        const valuationChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Fair Value', 'Current Price'],
+                datasets: [{
+                    data: [fairValue, currentPrice],
+                    backgroundColor: [
+                        function(context) {
+                            const chart = context.chart;
+                            const {ctx, chartArea} = chart;
+                            if (!chartArea) {
+                                return null;
+                            }
+                            const gradient = ctx.createLinearGradient(chartArea.left, 0, chartArea.right, 0);
+                            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.6)');
+                            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                            return gradient;
+                        },
+                        'rgba(0, 0, 0, 0.8)'
+                    ],
+                    borderColor: 'transparent',
+                    borderWidth: 0,
+                    barThickness: 80, 
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: false }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        max: maxValue,
+                        ticks: { display: false },
+                        grid: { display: false, drawBorder: false }
+                    },
+                    y: {
+                        grid: { display: false, drawBorder: false },
+                        ticks: { display: false }
+                    }
+                }
+            },
+            plugins: [{
+                id: 'customLabelsAndLines',
+                afterDraw: (chart) => {
+                    const ctx = chart.ctx;
+                    chart.data.datasets.forEach((dataset, i) => {
+                        const meta = chart.getDatasetMeta(i);
+                        if (!meta.hidden) {
+                            meta.data.forEach((element, index) => {
+                                const label = chart.data.labels[index];
+                                const value = dataset.data[index];
+                                const {x, y, base, width, height} = element;
+                                
+                                const xPos = base + 15;
+                                const yPos = y - (height / 2) + 15;
+
+                                ctx.save();
+                                ctx.fillStyle = 'white';
+                                ctx.font = 'bold 1.2em Arial';
+                                ctx.textBaseline = 'top';
+                                ctx.fillText(label, xPos, yPos);
+                                ctx.font = 'bold 1.5em Arial';
+                                ctx.fillText('$' + value.toFixed(2), xPos, yPos + 25);
+                                ctx.restore();
+
+                                // Draw the end line
+                                ctx.save();
+                                ctx.strokeStyle = '#00BFFF';
+                                ctx.lineWidth = 4;
+                                ctx.beginPath();
+                                ctx.moveTo(x, y - height / 2);
+                                ctx.lineTo(x, y + height / 2);
+                                ctx.stroke();
+                                ctx.restore();
+                            });
+                        }
+                    });
+                }
+            }]
+        });
+        
+        let annotationText = '';
+        if (percentageDiff > 0.1) {
+            annotationText = percentageDiff.toFixed(1) + '% Overvalued';
+        } else if (percentageDiff < -0.1) {
+            annotationText = Math.abs(percentageDiff).toFixed(1) + '% Undervalued';
+        } else {
+            annotationText = 'About Right';
+        }
+        const $annotation = $('<div class="jtw-valuation-annotation"></div>').text(annotationText);
+        $chartContainer.append($annotation);
+    }
+
+    /**
+     * Initializes the Historical Trends charts and the period toggle.
+     */
+    function initializeHistoricalCharts($container) {
+        const $chartDataScripts = $container.find('.jtw-chart-data');
+        if (!$chartDataScripts.length) return;
+
+        let charts = {}; // To hold chart instances for updating
+
+        // Helper function to check for data
+        const hasData = (data) => {
+            if (!data || !data.labels || data.labels.length === 0) return false;
+            if (data.datasets && data.datasets.length > 0) {
+                return data.datasets.some(ds => ds.data && ds.data.length > 0);
+            }
+            return data.data && data.data.length > 0;
+        };
+
+        $chartDataScripts.each(function() {
+            const $script = $(this);
+            const $chartItem = $script.closest('.jtw-chart-item');
+            const chartId = $script.data('chart-id');
+            const chartType = $script.data('chart-type');
+            const prefix = $script.data('prefix');
+            const annualData = JSON.parse($script.attr('data-annual'));
+            
+            // Initial visibility check (default to annual)
+            if (!hasData(annualData)) {
+                $chartItem.hide();
+            }
+
+            const ctx = document.getElementById(chartId);
+            if (!ctx) return;
+
+            let datasets;
+            // Check if data is multi-dataset (like for grouped/stacked bars)
+            if (annualData.datasets) {
+                 datasets = annualData.datasets.map((dataset, index) => ({
+                    label: dataset.label,
+                    data: dataset.data,
+                    backgroundColor: index === 0 ? 'rgba(54, 162, 235, 0.6)' : 'rgba(255, 99, 132, 0.6)',
+                }));
+            } else { // Single dataset (line or simple bar)
+                datasets = [{
+                    label: 'Value',
+                    data: annualData.data,
+                    borderColor: 'rgba(0, 122, 255, 1)',
+                    backgroundColor: 'rgba(0, 122, 255, 0.6)',
+                    fill: chartType === 'line',
+                    tension: 0.1
+                }];
+            }
+
+            const config = {
+                type: chartType,
+                data: {
+                    labels: annualData.labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: !!annualData.datasets }, // Show legend only for multi-dataset charts
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) { label += ': '; }
+                                    if (context.parsed.y !== null) {
+                                        label += prefix + context.parsed.y.toLocaleString('en-US', {maximumFractionDigits: 2});
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: chartType === 'bar_stacked', // Only stack if explicitly told to
+                        },
+                        y: {
+                            stacked: chartType === 'bar_stacked',
+                            ticks: {
+                                callback: function(value, index, values) {
+                                    return prefix + formatLargeNumber(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            
+            // Adjust type for what was formerly 'bar_stacked' to be just 'bar'
+            if (chartType === 'bar_stacked') {
+                config.type = 'bar';
+            }
+
+
+            charts[chartId] = new Chart(ctx, config);
+        });
+
+        // Event listener for the toggle buttons
+        $container.find('.jtw-period-button').on('click', function() {
+            const $button = $(this);
+            if ($button.hasClass('active')) return;
+
+            const period = $button.data('period');
+
+            // Update button styles
+            $container.find('.jtw-period-button').removeClass('active');
+            $button.addClass('active');
+
+            // Update all charts
+            $chartDataScripts.each(function() {
+                const $script = $(this);
+                const $chartItem = $script.closest('.jtw-chart-item');
+                const chartId = $script.data('chart-id');
+                const chart = charts[chartId];
+                if (!chart) return;
+                
+                const dataToUse = period === 'annual' 
+                    ? JSON.parse($script.attr('data-annual')) 
+                    : JSON.parse($script.attr('data-quarterly'));
+                
+                if (hasData(dataToUse)) {
+                    $chartItem.show();
+                    chart.data.labels = dataToUse.labels;
+                    if (dataToUse.datasets) { // Multi-dataset chart
+                        chart.data.datasets.forEach((dataset, index) => {
+                            // Ensure the dataset exists in the new data before trying to access it
+                            if(dataToUse.datasets[index]) {
+                                dataset.data = dataToUse.datasets[index].data;
+                            }
+                        });
+                    } else { // Single-dataset chart
+                        chart.data.datasets[0].data = dataToUse.data;
+                    }
+                    chart.update();
+                } else {
+                    $chartItem.hide();
+                }
+            });
+        });
     }
 
     /**
@@ -121,7 +409,7 @@
         $(document).off('scroll.jtw').on('scroll.jtw', onScroll);
         onScroll();
 
-        initializePegPegyCalculator($contentArea);
+        initializePegPegySimulator($contentArea);
     }
 
     /**
@@ -239,6 +527,8 @@
                     if (response.success && response.data && response.data.html) {
                         $mainContentArea.html(response.data.html);
                         setupSWSLayoutInteractivity($mainContentArea);
+                        initializeHistoricalCharts($mainContentArea);
+                        initializeValuationChart($mainContentArea);
                     } else {
                         const errorMessage = response.data.message || getLocalizedText('text_error');
                         $mainContentArea.html('<div class="jtw-error notice notice-error inline"><p>' + errorMessage + '</p></div>');
@@ -251,7 +541,6 @@
             });
         }
         
-        // --- CORRECTED LOGIC FOR AUTO-FETCH ---
         const urlParams = new URLSearchParams(window.location.search);
         const symbolFromUrl = urlParams.get('jtw_selected_symbol');
 
@@ -261,9 +550,23 @@
     }
 
     $(document).ready(function() {
-        // Initialize both potential functionalities.
         initializeHeaderSearch();
         initializeAnalyzerPage();
+
+        // Modal open/close logic
+        $('body').on('click', '.jtw-modal-trigger', function(e) {
+            e.preventDefault();
+            const targetModal = $(this).data('modal-target');
+            $('.jtw-modal-overlay').fadeIn(200);
+            $(targetModal).fadeIn(200);
+        });
+
+        const closeModal = () => {
+            $('.jtw-modal').fadeOut(200);
+            $('.jtw-modal-overlay').fadeOut(200);
+        };
+
+        $('body').on('click', '.jtw-modal-close, .jtw-modal-overlay', closeModal);
     });
 
 })( jQuery );

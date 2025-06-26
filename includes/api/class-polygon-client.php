@@ -21,7 +21,7 @@ class Polygon_Client {
 
     private $api_key;
     private $base_url = 'https://api.polygon.io';
-    private $cache_expiration = 3600; // 1 hour for most data
+    private $cache_expiration = 14400; // 4 hours for most data
 
     public function __construct( $api_key ) {
         $this->api_key = $api_key;
@@ -118,20 +118,28 @@ class Polygon_Client {
     }
 
     /**
-     * Fetches financial statements (Income, Balance Sheet, Cash Flow).
-     * timeframe can be 'annual' or 'quarterly'.
+     * Fetches financial statements using CIK for continuity or ticker as a fallback.
      */
-    public function get_financials( $ticker, $timeframe = 'annual' ) {
-        $ticker = sanitize_text_field( strtoupper( $ticker ) );
+    public function get_financials( $ticker, $details, $timeframe = 'annual' ) {
+        $cik = $details['cik'] ?? null;
+        $identifier = $cik ? $cik : sanitize_text_field(strtoupper($ticker));
+        $identifier_type = $cik ? 'cik' : 'ticker';
+
         $limit = ($timeframe === 'annual') ? 10 : 12;
-        $transient_key = 'jtw_poly_financials_' . $ticker . '_' . $timeframe . '_' . $limit;
+        $transient_key = 'jtw_poly_financials_' . $identifier . '_' . $timeframe . '_' . $limit;
         
         $cached_data = get_transient($transient_key);
         if (false !== $cached_data) {
             return $cached_data;
         }
         
-        $params = ['ticker' => $ticker, 'timeframe' => $timeframe, 'limit' => $limit];
+        $params = [
+            $identifier_type => $identifier,
+            'timeframe' => $timeframe,
+            'limit' => $limit,
+            'sort' => 'filing_date',
+            'order' => 'desc'
+        ];
         $endpoint = '/vX/reference/financials';
         $data = $this->do_request($endpoint, $params);
         
@@ -151,7 +159,7 @@ class Polygon_Client {
     /**
      * Fetches historical daily stock prices.
      */
-    public function get_daily_aggregates($ticker, $timespan = 'year', $multiplier = 5) {
+    public function get_daily_aggregates($ticker, $timespan = 'year', $multiplier = 10) {
         $ticker = sanitize_text_field( strtoupper( $ticker ) );
         $from = date('Y-m-d', strtotime("-{$multiplier} {$timespan}"));
         $to = date('Y-m-d');
@@ -161,7 +169,7 @@ class Polygon_Client {
         if (false !== $cached_data) return $cached_data;
 
         $endpoint = "/v2/aggs/ticker/{$ticker}/range/1/day/{$from}/{$to}";
-        $params = ['adjusted' => 'true', 'sort' => 'asc', 'limit' => 50000];
+        $params = ['adjusted' => 'true', 'sort' => 'desc', 'limit' => 50000];
         $data = $this->do_request($endpoint, $params);
 
         if (is_wp_error($data)) return $data;
@@ -185,7 +193,12 @@ class Polygon_Client {
         if (false !== $cached_data) return $cached_data;
 
         $endpoint = '/v3/reference/dividends';
-        $params = ['ticker' => $ticker, 'limit' => 1000]; // Get a large number of historical dividends
+        $params = [
+            'ticker' => $ticker,
+            'limit' => 1000,
+            'sort' => 'ex_dividend_date',
+            'order' => 'desc'
+        ];
         $data = $this->do_request($endpoint, $params);
 
         if (is_wp_error($data)) return $data;
