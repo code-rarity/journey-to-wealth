@@ -202,7 +202,7 @@ class Journey_To_Wealth_Public {
             'eps' => ['title' => 'EPS', 'type' => 'bar', 'prefix' => '$'],
             'cash_amount' => ['title' => 'Dividend Per Share', 'type' => 'bar', 'prefix' => '$'],
             'fcf' => ['title' => 'Free Cash Flow', 'type' => 'bar', 'prefix' => '$'],
-            'cash_and_debt' => ['title' => 'Cash & Debt', 'type' => 'bar', 'prefix' => '$'],
+            'assets_and_liabilities' => ['title' => 'Assets & Liabilities', 'type' => 'bar', 'prefix' => '$'],
             'shares' => ['title' => 'Shares Outstanding', 'type' => 'bar', 'prefix' => ''],
         ];
 
@@ -214,16 +214,16 @@ class Journey_To_Wealth_Public {
             $has_data = false;
             if (!empty($annual_data)) {
                 if (isset($annual_data['datasets'])) { // Stacked chart
-                    $has_data = !empty($annual_data['datasets'][0]['data']);
+                    $has_data = !empty(array_filter($annual_data['datasets'][0]['data'])) || !empty(array_filter($annual_data['datasets'][1]['data']));
                 } else { // Simple chart
-                    $has_data = !empty($annual_data['data']);
+                    $has_data = !empty(array_filter($annual_data['data']));
                 }
             }
             if (!$has_data && !empty($quarterly_data)) {
                  if (isset($quarterly_data['datasets'])) { // Stacked chart
-                    $has_data = !empty($quarterly_data['datasets'][0]['data']);
+                    $has_data = !empty(array_filter($quarterly_data['datasets'][0]['data'])) || !empty(array_filter($quarterly_data['datasets'][1]['data']));
                 } else { // Simple chart
-                    $has_data = !empty($quarterly_data['data']);
+                    $has_data = !empty(array_filter($quarterly_data['data']));
                 }
             }
     
@@ -366,10 +366,13 @@ class Journey_To_Wealth_Public {
         if (is_wp_error($dividends_raw)) { $dividends_raw = []; }
 
         // Correctly extract the 'results' array from the raw API response.
-        $financials_annual = !is_wp_error($financials_annual_raw) && isset($financials_annual_raw) ? $financials_annual_raw : [];
-        $financials_quarterly = !is_wp_error($financials_quarterly_raw) && isset($financials_quarterly_raw) ? $financials_quarterly_raw : [];
-        $dividends = !is_wp_error($dividends_raw) && isset($dividends_raw) ? $dividends_raw : [];
-        $historical_prices = !is_wp_error($historical_prices_raw) && isset($historical_prices_raw) ? $historical_prices_raw : [];
+        $financials_annual = !is_wp_error($financials_annual_raw) ? $financials_annual_raw : [];
+        $financials_quarterly = !is_wp_error($financials_quarterly_raw) ? $financials_quarterly_raw : [];
+        $dividends = !is_wp_error($dividends_raw) ? $dividends_raw : [];
+        $historical_prices = !is_wp_error($historical_prices_raw) ? $historical_prices_raw : [];
+
+        // --- Calculate Q4 data and inject it into the quarterly financials ---
+        $financials_quarterly = $this->calculate_q4_financials($financials_annual, $financials_quarterly);
         
         // --- Process Core & Relative Metrics Data ---
         $stock_price = $prev_close_data['c'] ?? 0;
@@ -410,46 +413,86 @@ class Journey_To_Wealth_Public {
         ];
         
         // --- Create Master Labels for X-Axis Standardization ---
-        $all_reports_annual = array_merge($financials_annual, $dividends);
-        $all_reports_quarterly = array_merge($financials_quarterly, $dividends);
-        
         $annual_labels = [];
-        $quarterly_labels = [];
-        
-        foreach ($all_reports_annual as $report) {
-            if (isset($report['fiscal_year'])) {
-                $annual_labels[] = $report['fiscal_year'];
-            } elseif (isset($report['ex_dividend_date'])) {
-                $annual_labels[] = substr($report['ex_dividend_date'], 0, 4);
+        if (!empty($financials_annual)) {
+            foreach ($financials_annual as $report) {
+                if (isset($report['fiscal_year'])) {
+                    $annual_labels[] = $report['fiscal_year'];
+                }
             }
         }
-        
-        foreach ($all_reports_quarterly as $report) {
-             if (isset($report['fiscal_period'], $report['fiscal_year'])) {
-                $year_short = substr($report['fiscal_year'], -2);
-                $quarterly_labels[] = $report['fiscal_period'] . "'" . $year_short;
-            } elseif (isset($report['ex_dividend_date'])) {
-                 $date = new DateTime($report['ex_dividend_date']);
-                 $quarter = 'Q' . ceil($date->format('n') / 3);
-                 $year_short = $date->format('y');
-                 $quarterly_labels[] = $quarter . "'" . $year_short;
+        if (!empty($dividends)) {
+            foreach ($dividends as $dividend) {
+                if (isset($dividend['ex_dividend_date'])) {
+                    $annual_labels[] = substr($dividend['ex_dividend_date'], 0, 4);
+                }
+            }
+        }
+        $unique_annual_labels = array_unique($annual_labels);
+        rsort($unique_annual_labels); // Sort years in descending order to find the latest
+        $latest_10_years = array_slice($unique_annual_labels, 0, 10); // Get the latest 10 years
+        sort($latest_10_years); // Sort back to ascending for the chart's x-axis
+        $master_labels_annual = $latest_10_years;
+    
+       // --- Create Master Labels for X-Axis Standardization (Quarterly) ---
+        $all_quarterly_periods = [];
+
+        if (!empty($financials_quarterly)) {
+            foreach ($financials_quarterly as $report) {
+                if (isset($report['fiscal_year'], $report['fiscal_period']) && $report['fiscal_period'] !== 'FY') {
+                    $all_quarterly_periods[] = $report['fiscal_year'] . '-' . $report['fiscal_period'];
+                }
             }
         }
 
-        $master_labels_annual = array_unique($annual_labels);
-        sort($master_labels_annual);
-
-        $master_labels_quarterly = array_unique($quarterly_labels);
-        usort($master_labels_quarterly, function($a, $b) {
-            $yearA = (int)substr($a, 2);
-            $quarterA = (int)substr($a, 1, 1);
-            $yearB = (int)substr($b, 2);
-            $quarterB = (int)substr($b, 1, 1);
-            if ($yearA != $yearB) {
-                return $yearA <=> $yearB;
+        if (!empty($dividends)) {
+            foreach ($dividends as $dividend) {
+                if (isset($dividend['ex_dividend_date'])) {
+                    $date = new DateTime($dividend['ex_dividend_date']);
+                    $year = $date->format('Y');
+                    $quarter = 'Q' . ceil((int)$date->format('n') / 3);
+                    $all_quarterly_periods[] = $year . '-' . $quarter;
+                }
             }
-            return $quarterA <=> $quarterB;
+        }
+
+        $unique_periods = array_unique($all_quarterly_periods);
+        usort($unique_periods, function($a, $b) {
+            list($yearA, $quarterA_str) = explode('-', $a);
+            list($yearB, $quarterB_str) = explode('-', $b);
+            $qNumA = (int)substr($quarterA_str, 1);
+            $qNumB = (int)substr($quarterB_str, 1);
+
+            if ((int)$yearA != (int)$yearB) {
+                return (int)$yearA <=> (int)$yearB;
+            }
+            return $qNumA <=> $qNumB;
         });
+        
+        $last_12_periods_keys = array_slice($unique_periods, -12);
+
+        $master_labels_quarterly = [];
+        if (!empty($last_12_periods_keys)) {
+            $first_period = $last_12_periods_keys[0];
+            list($start_year_str, $start_quarter_str) = explode('-', $first_period);
+            $start_year = (int)$start_year_str;
+            $start_quarter = (int)substr($start_quarter_str, 1);
+
+            $current_year = $start_year;
+            $current_quarter = $start_quarter;
+
+            for ($i = 0; $i < 12; $i++) {
+                $year_short = substr((string)$current_year, -2);
+                $master_labels_quarterly[] = "Q{$current_quarter}'{$year_short}";
+                
+                $current_quarter++;
+                if ($current_quarter > 4) {
+                    $current_quarter = 1;
+                    $current_year++;
+                }
+            }
+        }
+
 
         // --- Process data for Historical Trends charts ---
         $historical_data = [
@@ -461,7 +504,7 @@ class Journey_To_Wealth_Public {
                 'eps' => $this->process_financial_chart_data($financials_annual, $master_labels_annual, 'diluted_earnings_per_share', 'income_statement'),
                 'cash_amount' => $this->process_dividend_chart_data($dividends, $master_labels_annual, 'annual'),
                 'fcf' => $this->process_fcf_chart_data($financials_annual, $master_labels_annual),
-                'cash_and_debt' => $this->process_cash_debt_chart_data($financials_annual, $master_labels_annual),
+                'assets_and_liabilities' => $this->process_assets_liabilities_chart_data($financials_annual, $master_labels_annual),
                 'shares' => $this->process_financial_chart_data($financials_annual, $master_labels_annual, 'diluted_average_shares', 'income_statement'),
             ],
             'quarterly' => [
@@ -472,7 +515,7 @@ class Journey_To_Wealth_Public {
                 'eps' => $this->process_financial_chart_data($financials_quarterly, $master_labels_quarterly, 'diluted_earnings_per_share', 'income_statement'),
                 'cash_amount' => $this->process_dividend_chart_data($dividends, $master_labels_quarterly, 'quarterly'),
                 'fcf' => $this->process_fcf_chart_data($financials_quarterly, $master_labels_quarterly),
-                'cash_and_debt' => $this->process_cash_debt_chart_data($financials_quarterly, $master_labels_quarterly),
+                'assets_and_liabilities' => $this->process_assets_liabilities_chart_data($financials_quarterly, $master_labels_quarterly),
                 'shares' => $this->process_financial_chart_data($financials_quarterly, $master_labels_quarterly, 'diluted_average_shares', 'income_statement'),
             ]
         ];
@@ -524,6 +567,69 @@ class Journey_To_Wealth_Public {
         
         wp_send_json_success(['html' => $html]);
     }
+
+     /**
+     * Calculate Q4 data from annual and the first three quarters.
+     */
+    private function calculate_q4_financials($financials_annual, $financials_quarterly) {
+        $annuals_by_year = [];
+        foreach ($financials_annual as $report) {
+            $annuals_by_year[$report['fiscal_year']] = $report;
+        }
+
+        $quarters_by_year = [];
+        foreach ($financials_quarterly as $report) {
+            if ($report['fiscal_period'] !== 'FY') {
+                $quarters_by_year[$report['fiscal_year']][$report['fiscal_period']] = $report;
+            }
+        }
+
+        foreach ($annuals_by_year as $year => $annual_report) {
+            if (isset($quarters_by_year[$year]) && count($quarters_by_year[$year]) === 3) {
+                // We likely have Q1, Q2, Q3 and can calculate Q4
+                $q1 = $quarters_by_year[$year]['Q1'] ?? null;
+                $q2 = $quarters_by_year[$year]['Q2'] ?? null;
+                $q3 = $quarters_by_year[$year]['Q3'] ?? null;
+
+                if ($q1 && $q2 && $q3) {
+                    $q4_report = [
+                        'fiscal_year' => $year,
+                        'fiscal_period' => 'Q4',
+                        'financials' => []
+                    ];
+
+                    $statement_types = ['income_statement', 'cash_flow_statement', 'balance_sheet'];
+                    $snapshot_keys = ['diluted_average_shares', 'basic_average_shares'];
+
+                    foreach($statement_types as $statement) {
+                        if (!isset($annual_report['financials'][$statement])) continue;
+
+                        foreach($annual_report['financials'][$statement] as $key => $metric) {
+                            $annual_val = $metric['value'];
+                            
+                            // For balance sheets and specific non-cumulative keys, Q4 is the same as the annual report.
+                            if ($statement === 'balance_sheet' || in_array($key, $snapshot_keys)) {
+                                $q4_val = $annual_val;
+                            } else { // For income and cash flow, subtract the first three quarters.
+                                $q1_val = $q1['financials'][$statement][$key]['value'] ?? 0;
+                                $q2_val = $q2['financials'][$statement][$key]['value'] ?? 0;
+                                $q3_val = $q3['financials'][$statement][$key]['value'] ?? 0;
+                                $q4_val = $annual_val - ($q1_val + $q2_val + $q3_val);
+                            }
+
+                            $q4_report['financials'][$statement][$key] = [
+                                'value' => $q4_val,
+                                'unit' => $metric['unit'],
+                                'label' => $metric['label']
+                            ];
+                        }
+                    }
+                    $financials_quarterly[] = $q4_report;
+                }
+            }
+        }
+        return $financials_quarterly;
+    }
     
     // --- Data Processing Helpers for Charts ---
     private function process_price_data($price_data) {
@@ -544,18 +650,25 @@ class Journey_To_Wealth_Public {
     }
 
     private function process_financial_chart_data($financials, $master_labels, $key, $statement_type = 'income_statement') {
-        if (is_wp_error($financials) || empty($financials)) {
+        if (is_wp_error($financials) || empty($financials) || empty($master_labels)) {
             return ['labels' => $master_labels, 'data' => array_fill(0, count($master_labels), 0)];
         }
+    
+        // Determine if we are processing annual or quarterly data based on the label format.
+        $is_quarterly = strpos($master_labels[0], 'Q') !== false;
     
         $data_map = [];
         foreach ($financials as $report) {
             $label = '';
-            if (isset($report['fiscal_period']) && isset($report['fiscal_year'])) {
-                $year_short = substr($report['fiscal_year'], -2);
-                $label = $report['fiscal_period'] . "'" . $year_short;
-            } elseif (isset($report['fiscal_year'])) {
-                $label = $report['fiscal_year'];
+            if ($is_quarterly) {
+                if (isset($report['fiscal_period']) && isset($report['fiscal_year'])) {
+                    $year_short = substr($report['fiscal_year'], -2);
+                    $label = $report['fiscal_period'] . "'" . $year_short;
+                }
+            } else { // Annual
+                if (isset($report['fiscal_year'])) {
+                    $label = $report['fiscal_year'];
+                }
             }
     
             if (!empty($label)) {
@@ -576,91 +689,134 @@ class Journey_To_Wealth_Public {
     }
     
     private function process_fcf_chart_data($financials, $master_labels) {
-        if (is_wp_error($financials) || empty($financials)) {
+        if (is_wp_error($financials) || empty($financials) || empty($master_labels)) {
             return ['labels' => $master_labels, 'data' => array_fill(0, count($master_labels), 0)];
         }
     
+        $is_quarterly = strpos($master_labels[0], 'Q') !== false;
         $data_map = [];
+    
         foreach ($financials as $report) {
-             $label = '';
-            if (isset($report['fiscal_period']) && isset($report['fiscal_year'])) {
-                $year_short = substr($report['fiscal_year'], -2);
-                $label = $report['fiscal_period'] . "'" . $year_short;
-            } elseif (isset($report['fiscal_year'])) {
-                $label = $report['fiscal_year'];
+            $label = '';
+            if ($is_quarterly) {
+                if (isset($report['fiscal_period'], $report['fiscal_year'])) {
+                    $year_short = substr($report['fiscal_year'], -2);
+                    $label = $report['fiscal_period'] . "'" . $year_short;
+                }
+            } else { // Annual
+                if (isset($report['fiscal_year'])) {
+                    $label = $report['fiscal_year'];
+                }
             }
-
+    
             if (!empty($label)) {
                 $cash_flow = $report['financials']['cash_flow_statement'] ?? [];
                 $op_cf = $this->find_financial_value($cash_flow, 'net_cash_flow_from_operating_activities');
                 $investing_cf = $this->find_financial_value($cash_flow, 'net_cash_flow_from_investing_activities');
+                
+                // FCF = Operating Cash Flow + Net Cash Flow From Investing (as investing is usually a negative value)
                 if ($op_cf !== null && $investing_cf !== null) {
                     $data_map[$label] = $op_cf + $investing_cf;
                 }
             }
         }
-
+    
         $final_data = [];
         foreach ($master_labels as $label) {
             $final_data[] = $data_map[$label] ?? 0;
         }
-
+    
         return ['labels' => $master_labels, 'data' => $final_data];
     }
     
-    private function process_cash_debt_chart_data($financials, $master_labels) {
-        if (is_wp_error($financials) || empty($financials)) {
-            return ['labels' => $master_labels, 'datasets' => [['label' => 'Cash', 'data' => []], ['label' => 'Debt', 'data' => []]]];
+    private function process_assets_liabilities_chart_data($financials, $master_labels) {
+        if (is_wp_error($financials) || empty($financials) || empty($master_labels)) {
+            return ['labels' => $master_labels, 'datasets' => []];
         }
     
-        $cash_map = [];
-        $debt_map = [];
+        $is_quarterly = strpos($master_labels[0], 'Q') !== false;
+        $current_assets_map = [];
+        $noncurrent_assets_map = [];
+        $current_liabilities_map = [];
+        $noncurrent_liabilities_map = [];
+    
         foreach ($financials as $report) {
             $label = '';
-            if (isset($report['fiscal_period']) && isset($report['fiscal_year'])) {
-                $year_short = substr($report['fiscal_year'], -2);
-                $label = $report['fiscal_period'] . "'" . $year_short;
-            } elseif (isset($report['fiscal_year'])) {
-                $label = $report['fiscal_year'];
+            if ($is_quarterly) {
+                if (isset($report['fiscal_period']) && isset($report['fiscal_year'])) {
+                    $year_short = substr($report['fiscal_year'], -2);
+                    $label = $report['fiscal_period'] . "'" . $year_short;
+                }
+            } else { // Annual
+                if (isset($report['fiscal_year'])) {
+                    $label = $report['fiscal_year'];
+                }
             }
     
             if (!empty($label)) {
                 $balance_sheet = $report['financials']['balance_sheet'] ?? [];
-                $cash = $this->find_financial_value($balance_sheet, 'other_current_assets');
-                $long_debt = $this->find_financial_value($balance_sheet, 'long_term_debt');
-                $short_debt = $this->find_financial_value($balance_sheet, 'other_current_liabilities');
-                if ($cash !== null) {
-                    $cash_map[$label] = $cash;
+                $current_assets = $this->find_financial_value($balance_sheet, 'current_assets');
+                $noncurrent_assets = $this->find_financial_value($balance_sheet, 'noncurrent_assets');
+                $current_liabilities = $this->find_financial_value($balance_sheet, 'current_liabilities');
+                $noncurrent_liabilities = $this->find_financial_value($balance_sheet, 'noncurrent_liabilities');
+                
+                if ($current_assets !== null) {
+                    $current_assets_map[$label] = $current_assets;
                 }
-                if ($long_debt !== null || $short_debt !== null) {
-                    $debt_map[$label] = (float)($long_debt ?? 0) + (float)($short_debt ?? 0);
+                if ($noncurrent_assets !== null) {
+                    $noncurrent_assets_map[$label] = $noncurrent_assets;
+                }
+                if ($current_liabilities !== null) {
+                    $current_liabilities_map[$label] = $current_liabilities;
+                }
+                 if ($noncurrent_liabilities !== null) {
+                    $noncurrent_liabilities_map[$label] = $noncurrent_liabilities;
                 }
             }
         }
     
-        $cash_data = [];
-        $debt_data = [];
+        $current_assets_data = [];
+        $noncurrent_assets_data = [];
+        $current_liabilities_data = [];
+        $noncurrent_liabilities_data = [];
+
         foreach ($master_labels as $label) {
-            $cash_data[] = $cash_map[$label] ?? 0;
-            $debt_data[] = $debt_map[$label] ?? 0;
+            $current_assets_data[] = $current_assets_map[$label] ?? 0;
+            $noncurrent_assets_data[] = $noncurrent_assets_map[$label] ?? 0;
+            $current_liabilities_data[] = $current_liabilities_map[$label] ?? 0;
+            $noncurrent_liabilities_data[] = $noncurrent_liabilities_map[$label] ?? 0;
         }
     
-        return ['labels' => $master_labels, 'datasets' => [['label' => 'Cash', 'data' => $cash_data], ['label' => 'Debt', 'data' => $debt_data]]];
+        return [
+            'labels' => $master_labels,
+            'datasets' => [
+                ['label' => 'Current Assets', 'data' => $current_assets_data],
+                ['label' => 'Non-current Assets', 'data' => $noncurrent_assets_data],
+                ['label' => 'Current Liabilities', 'data' => $current_liabilities_data],
+                ['label' => 'Non-current Liabilities', 'data' => $noncurrent_liabilities_data]
+            ]
+        ];
     }
 
     private function process_ebitda_chart_data($financials, $master_labels) {
-        if (is_wp_error($financials) || empty($financials)) {
+        if (is_wp_error($financials) || empty($financials) || empty($master_labels)) {
             return ['labels' => $master_labels, 'data' => array_fill(0, count($master_labels), 0)];
         }
     
+        $is_quarterly = strpos($master_labels[0], 'Q') !== false;
         $data_map = [];
+    
         foreach ($financials as $report) {
             $label = '';
-            if (isset($report['fiscal_period']) && isset($report['fiscal_year'])) {
-                $year_short = substr($report['fiscal_year'], -2);
-                $label = $report['fiscal_period'] . "'" . $year_short;
-            } elseif (isset($report['fiscal_year'])) {
-                $label = $report['fiscal_year'];
+            if ($is_quarterly) {
+                if (isset($report['fiscal_period']) && isset($report['fiscal_year'])) {
+                    $year_short = substr($report['fiscal_year'], -2);
+                    $label = $report['fiscal_period'] . "'" . $year_short;
+                }
+            } else { // Annual
+                if (isset($report['fiscal_year'])) {
+                    $label = $report['fiscal_year'];
+                }
             }
     
             if (!empty($label)) {
@@ -682,7 +838,7 @@ class Journey_To_Wealth_Public {
     }
 
     private function process_dividend_chart_data($dividends, $master_labels, $timeframe = 'annual') {
-        if (is_wp_error($dividends) || empty($dividends)) {
+        if (is_wp_error($dividends) || empty($dividends) || empty($master_labels)) {
             return ['labels' => $master_labels, 'data' => array_fill(0, count($master_labels), 0)];
         }
     
@@ -701,7 +857,7 @@ class Journey_To_Wealth_Public {
              foreach ($dividends as $dividend) {
                 if (isset($dividend['ex_dividend_date']) && isset($dividend['cash_amount'])) {
                     $date = new DateTime($dividend['ex_dividend_date']);
-                    $quarter = 'Q' . ceil($date->format('n') / 3);
+                    $quarter = 'Q' . ceil((int)$date->format('n') / 3);
                     $year_short = $date->format('y');
                     $label = $quarter . "'" . $year_short;
                      if (!isset($data_map[$label])) {

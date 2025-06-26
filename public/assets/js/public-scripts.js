@@ -232,9 +232,9 @@
         const hasData = (data) => {
             if (!data || !data.labels || data.labels.length === 0) return false;
             if (data.datasets && data.datasets.length > 0) {
-                return data.datasets.some(ds => ds.data && ds.data.length > 0);
+                return data.datasets.some(ds => ds.data && ds.data.some(v => v !== 0));
             }
-            return data.data && data.data.length > 0;
+             return data.data && data.data.some(v => v !== 0);
         };
 
         $chartDataScripts.each(function() {
@@ -243,7 +243,14 @@
             const chartId = $script.data('chart-id');
             const chartType = $script.data('chart-type');
             const prefix = $script.data('prefix');
-            const annualData = JSON.parse($script.attr('data-annual'));
+            let annualData = $script.attr('data-annual');
+            try {
+                annualData = JSON.parse(annualData);
+            } catch (e) {
+                console.error("Failed to parse annual data for chart:", chartId, e);
+                $chartItem.hide();
+                return; // Skip this chart
+            }
             
             // Initial visibility check (default to annual)
             if (!hasData(annualData)) {
@@ -252,16 +259,30 @@
 
             const ctx = document.getElementById(chartId);
             if (!ctx) return;
+            
+            const isAssetsLiabilitiesChart = annualData.datasets && annualData.datasets.length === 4;
 
             let datasets;
-            // Check if data is multi-dataset (like for grouped/stacked bars)
-            if (annualData.datasets) {
+            if (isAssetsLiabilitiesChart) {
+                const colors = {
+                    'Current Assets': 'rgba(54, 162, 235, 0.8)',
+                    'Non-current Assets': 'rgba(54, 162, 235, 0.5)',
+                    'Current Liabilities': 'rgba(255, 99, 132, 0.8)',
+                    'Non-current Liabilities': 'rgba(255, 99, 132, 0.5)'
+                };
+                datasets = annualData.datasets.map(ds => ({
+                    label: ds.label,
+                    data: ds.data,
+                    backgroundColor: colors[ds.label],
+                    stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
+                }));
+            } else if (annualData.datasets) {
                  datasets = annualData.datasets.map((dataset, index) => ({
                     label: dataset.label,
                     data: dataset.data,
                     backgroundColor: index === 0 ? 'rgba(54, 162, 235, 0.6)' : 'rgba(255, 99, 132, 0.6)',
                 }));
-            } else { // Single dataset (line or simple bar)
+            } else { // Single dataset
                 datasets = [{
                     label: 'Value',
                     data: annualData.data,
@@ -282,14 +303,14 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: { display: !!annualData.datasets }, // Show legend only for multi-dataset charts
+                        legend: { display: !!annualData.datasets },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
                                     let label = context.dataset.label || '';
                                     if (label) { label += ': '; }
                                     if (context.parsed.y !== null) {
-                                        label += prefix + context.parsed.y.toLocaleString('en-US', {maximumFractionDigits: 2});
+                                        label += prefix + formatLargeNumber(context.parsed.y);
                                     }
                                     return label;
                                 }
@@ -298,10 +319,10 @@
                     },
                     scales: {
                         x: {
-                            stacked: chartType === 'bar_stacked', // Only stack if explicitly told to
+                            stacked: isAssetsLiabilitiesChart,
                         },
                         y: {
-                            stacked: chartType === 'bar_stacked',
+                            stacked: isAssetsLiabilitiesChart,
                             ticks: {
                                 callback: function(value, index, values) {
                                     return prefix + formatLargeNumber(value);
@@ -312,12 +333,6 @@
                 }
             };
             
-            // Adjust type for what was formerly 'bar_stacked' to be just 'bar'
-            if (chartType === 'bar_stacked') {
-                config.type = 'bar';
-            }
-
-
             charts[chartId] = new Chart(ctx, config);
         });
 
@@ -327,12 +342,9 @@
             if ($button.hasClass('active')) return;
 
             const period = $button.data('period');
-
-            // Update button styles
             $container.find('.jtw-period-button').removeClass('active');
             $button.addClass('active');
 
-            // Update all charts
             $chartDataScripts.each(function() {
                 const $script = $(this);
                 const $chartItem = $script.closest('.jtw-chart-item');
@@ -340,21 +352,40 @@
                 const chart = charts[chartId];
                 if (!chart) return;
                 
-                const dataToUse = period === 'annual' 
-                    ? JSON.parse($script.attr('data-annual')) 
-                    : JSON.parse($script.attr('data-quarterly'));
+                let dataToUse;
+                try {
+                     dataToUse = JSON.parse($script.attr('data-' + period));
+                } catch(e) {
+                     console.error("Failed to parse " + period + " data for chart:", chartId, e);
+                     $chartItem.hide();
+                     return;
+                }
                 
                 if (hasData(dataToUse)) {
                     $chartItem.show();
                     chart.data.labels = dataToUse.labels;
-                    if (dataToUse.datasets) { // Multi-dataset chart
-                        chart.data.datasets.forEach((dataset, index) => {
-                            // Ensure the dataset exists in the new data before trying to access it
-                            if(dataToUse.datasets[index]) {
-                                dataset.data = dataToUse.datasets[index].data;
-                            }
-                        });
-                    } else { // Single-dataset chart
+                    if (dataToUse.datasets) { 
+                        if (dataToUse.datasets.length === 4) { // Handle assets/liabilities specifically
+                             const colors = {
+                                'Current Assets': 'rgba(54, 162, 235, 0.8)',
+                                'Non-current Assets': 'rgba(54, 162, 235, 0.5)',
+                                'Current Liabilities': 'rgba(255, 99, 132, 0.8)',
+                                'Non-current Liabilities': 'rgba(255, 99, 132, 0.5)'
+                            };
+                            chart.data.datasets = dataToUse.datasets.map(ds => ({
+                                label: ds.label,
+                                data: ds.data,
+                                backgroundColor: colors[ds.label],
+                                stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
+                            }));
+                        } else {
+                            chart.data.datasets.forEach((dataset, index) => {
+                                if(dataToUse.datasets[index]) {
+                                    dataset.data = dataToUse.datasets[index].data;
+                                }
+                            });
+                        }
+                    } else { 
                         chart.data.datasets[0].data = dataToUse.data;
                     }
                     chart.update();
