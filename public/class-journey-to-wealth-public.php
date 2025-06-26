@@ -75,7 +75,6 @@ class Journey_To_Wealth_Public {
         return $output;
     }
 
-<<<<<<< HEAD
     /**
      * Finds a financial value from a statement section using a direct key lookup.
      *
@@ -86,14 +85,6 @@ class Journey_To_Wealth_Public {
     private function find_financial_value($financial_statement_section, $key) {
         if (!is_array($financial_statement_section) || !isset($financial_statement_section[$key]['value'])) {
             return null;
-=======
-    private function find_financial_value($financial_statement_section, $label) {
-        if (!is_array($financial_statement_section)) return null;
-        foreach ($financial_statement_section as $item) {
-            if (isset($item['label']) && strcasecmp($item['label'], $label) === 0 && isset($item['value'])) {
-                return is_numeric($item['value']) ? (float)$item['value'] : null;
-            }
->>>>>>> 015d383cd79f3005df2626f1ab9dcab898ba66c2
         }
         $value = $financial_statement_section[$key]['value'];
         return is_numeric($value) ? (float)$value : null;
@@ -395,19 +386,10 @@ class Journey_To_Wealth_Public {
         $latest_income_statement = $latest_financials['financials']['income_statement'] ?? [];
         $latest_balance_sheet = $latest_financials['financials']['balance_sheet'] ?? [];
 
-<<<<<<< HEAD
         $eps = $this->find_financial_value($latest_income_statement, 'diluted_earnings_per_share');
         $revenue = $this->find_financial_value($latest_income_statement, 'revenues');
         $ebitda = $calculator->calculate_ebitda($latest_financials);
         $book_value = $this->find_financial_value($latest_balance_sheet, 'equity');
-=======
-        $eps = $this->find_financial_value($latest_income_statement, 'Diluted Earnings Per Share');
-        $revenue = $this->find_financial_value($latest_income_statement, 'Revenues');
-        $operating_income = $this->find_financial_value($latest_income_statement, 'Operating Income/Loss');
-        $da = $this->find_financial_value($latest_income_statement, 'Depreciation, Depletion and Amortization');
-        $ebitda = (is_numeric($operating_income) && is_numeric($da)) ? $operating_income + $da : $this->find_financial_value($latest_income_statement, 'EBITDA');
-        $book_value = $this->find_financial_value($latest_balance_sheet, 'Equity');
->>>>>>> 015d383cd79f3005df2626f1ab9dcab898ba66c2
 
         $metrics_data = [
             'peRatio' => $calculator->calculate_pe_ratio($stock_price, $eps),
