@@ -55,16 +55,19 @@
      * Initializes the interactive PEG/PEGY calculator on the analysis page.
      */
     function initializePegPegySimulator($container) {
-        const $card = $container.find('.jtw-interactive-card');
-        if (!$card.length) return;
+        const $calculator = $container.find('.jtw-peg-pegy-calculator');
+        if (!$calculator.length) return;
     
         const $stockPriceInput = $('#jtw-sim-stock-price');
         const $epsInput = $('#jtw-sim-eps');
         const $growthInput = $('#jtw-sim-growth-rate');
         const $dividendInput = $('#jtw-sim-dividend-yield');
-    
+        
         const $pegValueEl = $('#jtw-peg-value');
         const $pegyValueEl = $('#jtw-pegy-value');
+        
+        const $pegBar = $('#jtw-peg-bar');
+        const $pegyBar = $('#jtw-pegy-bar');
     
         function updateRatios() {
             const stockPrice = parseFloat($stockPriceInput.val());
@@ -77,24 +80,48 @@
                 pe = stockPrice / eps;
             }
     
+            // Function to update a bar based on a value
+            function updateBar($bar, $valueEl, value) {
+                if (isNaN(value) || value === null || !isFinite(value)) {
+                    $valueEl.text('-');
+                    $bar.css('width', '0%').removeClass('good fair poor');
+                    return;
+                }
+
+                $valueEl.text(value.toFixed(2) + 'x');
+                
+                // Set a max value for the bar visualization (e.g., 2.0)
+                const max_val = 2.0;
+                const width_percent = Math.min((Math.abs(value) / max_val) * 100, 100);
+                $bar.css('width', width_percent + '%');
+
+                $bar.removeClass('good fair poor');
+                if (value < 1.0 && value >= 0) {
+                    $bar.addClass('good');
+                } else if (value >= 1.0 && value <= 1.2) {
+                    $bar.addClass('fair');
+                } else {
+                    $bar.addClass('poor');
+                }
+            }
+
+            let peg = NaN;
             if (!isNaN(pe) && growthRate > 0) {
-                const peg = pe / growthRate;
-                $pegValueEl.text(peg.toFixed(2));
-            } else {
-                $pegValueEl.text('-');
+                peg = pe / growthRate;
             }
+            updateBar($pegBar, $pegValueEl, peg);
     
+            let pegy = NaN;
             if (!isNaN(pe) && (growthRate + dividendYield) > 0) {
-                const pegy = pe / (growthRate + dividendYield);
-                $pegyValueEl.text(pegy.toFixed(2));
-            } else {
-                $pegyValueEl.text('-');
+                pegy = pe / (growthRate + dividendYield);
             }
+            updateBar($pegyBar, $pegyValueEl, pegy);
         }
     
-        $container.on('input', '.jtw-sim-input', updateRatios);
-        updateRatios(); // Initial calculation
+        $container.on('input', '.jtw-sim-input', debounce(updateRatios, 250));
+        updateRatios();
     }
+
 
     /**
      * Initializes the Intrinsic Valuation histogram-style chart.
@@ -143,7 +170,8 @@
                     ],
                     borderColor: 'transparent',
                     borderWidth: 0,
-                    barThickness: 80, 
+                    // **FIX:** Replaced fixed bar thickness with responsive percentage-based settings.
+                    barThickness: 80
                 }]
             },
             options: {
@@ -208,12 +236,12 @@
         });
         
         let annotationText = '';
-        if (percentageDiff > 0.1) {
+        if (percentageDiff > 10) {
             annotationText = percentageDiff.toFixed(1) + '% Overvalued';
-        } else if (percentageDiff < -0.1) {
+        } else if (percentageDiff < -10) {
             annotationText = Math.abs(percentageDiff).toFixed(1) + '% Undervalued';
         } else {
-            annotationText = 'About Right';
+            annotationText = 'Fairly Valued';
         }
         const $annotation = $('<div class="jtw-valuation-annotation"></div>').text(annotationText);
         $chartContainer.append($annotation);
@@ -232,9 +260,9 @@
         const hasData = (data) => {
             if (!data || !data.labels || data.labels.length === 0) return false;
             if (data.datasets && data.datasets.length > 0) {
-                return data.datasets.some(ds => ds.data && ds.data.some(v => v !== 0));
+                return data.datasets.some(ds => ds.data && ds.data.some(v => v !== null && v !== 0));
             }
-             return data.data && data.data.some(v => v !== 0);
+             return data.data && data.data.some(v => v !== null && v !== 0);
         };
 
         $chartDataScripts.each(function() {
@@ -243,9 +271,9 @@
             const chartId = $script.data('chart-id');
             const chartType = $script.data('chart-type');
             const prefix = $script.data('prefix');
-            let annualData = $script.attr('data-annual');
+            let annualData;
             try {
-                annualData = JSON.parse(annualData);
+                annualData = JSON.parse($script.attr('data-annual'));
             } catch (e) {
                 console.error("Failed to parse annual data for chart:", chartId, e);
                 $chartItem.hide();
@@ -260,15 +288,60 @@
             const ctx = document.getElementById(chartId);
             if (!ctx) return;
             
-            const isAssetsLiabilitiesChart = annualData.datasets && annualData.datasets.length === 4;
-
             let datasets;
-            if (isAssetsLiabilitiesChart) {
+            const options = {
+                responsive: true,
+                maintainAspectRatio: false, 
+                plugins: {
+                    legend: { 
+                        display: !!annualData.datasets,
+                        position: 'top',
+                        labels: {
+                            boxWidth: 12,
+                            font: { size: 11 }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) { label += ': '; }
+                                if (context.parsed.y !== null) {
+                                    label += prefix + formatLargeNumber(context.parsed.y);
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: false,
+                        ticks: {
+                            autoSkip: true,
+                            maxRotation: 0,
+                            font: { size: 10 }
+                        }
+                    },
+                    y: {
+                        stacked: false,
+                        ticks: {
+                            maxTicksLimit: 5, 
+                            callback: function(value) {
+                                return prefix + formatLargeNumber(value).replace('.00','');
+                            },
+                            font: { size: 10 }
+                        }
+                    }
+                }
+            };
+
+            if (chartId.includes('assets-and-liabilities')) {
                 const colors = {
-                    'Current Assets': 'rgba(54, 162, 235, 0.8)',
-                    'Non-current Assets': 'rgba(54, 162, 235, 0.5)',
+                    'Current Assets': 'rgba(30, 144, 255, 0.8)',
+                    'Non-current Assets': 'rgba(135, 206, 250, 0.8)',
                     'Current Liabilities': 'rgba(255, 99, 132, 0.8)',
-                    'Non-current Liabilities': 'rgba(255, 99, 132, 0.5)'
+                    'Non-current Liabilities': 'rgba(255, 159, 64, 0.8)'
                 };
                 datasets = annualData.datasets.map(ds => ({
                     label: ds.label,
@@ -276,13 +349,15 @@
                     backgroundColor: colors[ds.label],
                     stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
                 }));
+                options.scales.x.stacked = true;
+                options.scales.y.stacked = true;
             } else if (annualData.datasets) {
                  datasets = annualData.datasets.map((dataset, index) => ({
                     label: dataset.label,
                     data: dataset.data,
                     backgroundColor: index === 0 ? 'rgba(54, 162, 235, 0.6)' : 'rgba(255, 99, 132, 0.6)',
                 }));
-            } else { // Single dataset
+            } else { 
                 datasets = [{
                     label: 'Value',
                     data: annualData.data,
@@ -299,38 +374,7 @@
                     labels: annualData.labels,
                     datasets: datasets
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: !!annualData.datasets },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    let label = context.dataset.label || '';
-                                    if (label) { label += ': '; }
-                                    if (context.parsed.y !== null) {
-                                        label += prefix + formatLargeNumber(context.parsed.y);
-                                    }
-                                    return label;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            stacked: isAssetsLiabilitiesChart,
-                        },
-                        y: {
-                            stacked: isAssetsLiabilitiesChart,
-                            ticks: {
-                                callback: function(value, index, values) {
-                                    return prefix + formatLargeNumber(value);
-                                }
-                            }
-                        }
-                    }
-                }
+                options: options
             };
             
             charts[chartId] = new Chart(ctx, config);
@@ -364,27 +408,27 @@
                 if (hasData(dataToUse)) {
                     $chartItem.show();
                     chart.data.labels = dataToUse.labels;
-                    if (dataToUse.datasets) { 
-                        if (dataToUse.datasets.length === 4) { // Handle assets/liabilities specifically
-                             const colors = {
-                                'Current Assets': 'rgba(54, 162, 235, 0.8)',
-                                'Non-current Assets': 'rgba(54, 162, 235, 0.5)',
-                                'Current Liabilities': 'rgba(255, 99, 132, 0.8)',
-                                'Non-current Liabilities': 'rgba(255, 99, 132, 0.5)'
-                            };
-                            chart.data.datasets = dataToUse.datasets.map(ds => ({
-                                label: ds.label,
-                                data: ds.data,
-                                backgroundColor: colors[ds.label],
-                                stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
-                            }));
-                        } else {
-                            chart.data.datasets.forEach((dataset, index) => {
-                                if(dataToUse.datasets[index]) {
-                                    dataset.data = dataToUse.datasets[index].data;
-                                }
-                            });
-                        }
+
+                    if (chartId.includes('assets-and-liabilities')) {
+                        const colors = {
+                            'Current Assets': 'rgba(30, 144, 255, 0.8)',
+                            'Non-current Assets': 'rgba(135, 206, 250, 0.8)',
+                            'Current Liabilities': 'rgba(255, 99, 132, 0.8)',
+                            'Non-current Liabilities': 'rgba(255, 159, 64, 0.8)'
+                        };
+                        chart.data.datasets = dataToUse.datasets.map(ds => ({
+                            label: ds.label,
+                            data: ds.data,
+                            backgroundColor: colors[ds.label],
+                            stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
+                        }));
+                    } else if (dataToUse.datasets) { 
+                        chart.data.datasets.forEach((dataset, index) => {
+                            if(dataToUse.datasets[index]) {
+                                dataset.data = dataToUse.datasets[index].data;
+                                dataset.label = dataToUse.datasets[index].label;
+                            }
+                        });
                     } else { 
                         chart.data.datasets[0].data = dataToUse.data;
                     }
@@ -396,9 +440,6 @@
         });
     }
 
-    /**
-     * Sets up interactivity for the loaded analyzer content (anchor links, scroll spying).
-     */
     function setupSWSLayoutInteractivity($contentArea) {
         const $anchorNav = $contentArea.find('.jtw-anchor-nav');
         if (!$anchorNav.length) return;
@@ -443,9 +484,6 @@
         initializePegPegySimulator($contentArea);
     }
 
-    /**
-     * Initializes the header search form functionality.
-     */
     function initializeHeaderSearch() {
         const $headerForm = $('.jtw-header-lookup-form');
         if (!$headerForm.length) return;
@@ -519,7 +557,6 @@
             });
         }, 500));
 
-        // Use event delegation for dynamically added result items
         $headerForm.on('click', '.jtw-header-result-item', function() {
             redirectToAnalysisPage($(this).data('symbol'));
         });
@@ -531,9 +568,6 @@
         });
     }
 
-    /**
-     * Main function to initialize the analyzer page.
-     */
     function initializeAnalyzerPage() {
         const $container = $('.jtw-analyzer-wrapper').first();
         if (!$container.length) return;
@@ -584,7 +618,6 @@
         initializeHeaderSearch();
         initializeAnalyzerPage();
 
-        // Modal open/close logic
         $('body').on('click', '.jtw-modal-trigger', function(e) {
             e.preventDefault();
             const targetModal = $(this).data('modal-target');

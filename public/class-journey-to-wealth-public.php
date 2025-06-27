@@ -44,9 +44,6 @@ class Journey_To_Wealth_Public {
         );
     }
 
-    /**
-     * Renders the header search form shortcode.
-     */
     public function render_header_lookup_shortcode( $atts ) {
         if (!is_user_logged_in()) {
             return '';
@@ -75,13 +72,6 @@ class Journey_To_Wealth_Public {
         return $output;
     }
 
-    /**
-     * Finds a financial value from a statement section using a direct key lookup.
-     *
-     * @param array  $financial_statement_section The associative array for the statement (e.g., income_statement).
-     * @param string $key The key for the desired metric (e.g., 'revenues').
-     * @return float|null The numeric value or null if not found.
-     */
     private function find_financial_value($financial_statement_section, $key) {
         if (!is_array($financial_statement_section) || !isset($financial_statement_section[$key]['value'])) {
             return null;
@@ -146,23 +136,37 @@ class Journey_To_Wealth_Public {
     private function build_peg_pegy_ratios_section_html($metrics, $stock_price, $eps) {
         $peg_data = $metrics['pegRatio'] ?? [];
         $pegy_data = $metrics['pegyRatio'] ?? [];
-        $growth_default = $peg_data['defaultGrowth'] ?? 5;
-        $dividend_yield_default = $pegy_data['dividendYield'] ?? 0;
+        
+        $growth_default = number_format((float)($peg_data['defaultGrowth'] ?? 5), 2, '.', '');
+        $dividend_yield_default = number_format((float)($pegy_data['dividendYield'] ?? 0), 2, '.', '');
     
         $output = '<section id="section-peg-pegy-ratios" class="jtw-content-section">';
         $output .= '<h4>' . esc_html__('PEG/PEGY Ratio Calculator', 'journey-to-wealth') . '</h4>';
+        $output .= '<p class="jtw-section-description">' . esc_html__('The Price/Earnings-to-Growth (PEG) ratio adjusts the P/E ratio for a company\'s growth, with values below 1.0 often considered favorable. The PEGY ratio further refines this by including dividend yield, offering a more complete valuation picture for income-paying stocks.', 'journey-to-wealth') . '</p>';
         $output .= '<div class="jtw-metric-card jtw-interactive-card">';
-        $output .= '  <div class="jtw-interactive-card-inner-grid">';
-        $output .= '    <div class="jtw-peg-pegy-form">';
-        $output .= '      <div class="jtw-form-row"><label for="jtw-sim-stock-price">Stock Price ($):</label><input type="number" step="0.01" id="jtw-sim-stock-price" class="jtw-sim-input" value="' . esc_attr($stock_price) . '"></div>';
-        $output .= '      <div class="jtw-form-row"><label for="jtw-sim-eps">Earnings per Share ($):</label><input type="number" step="0.01" id="jtw-sim-eps" class="jtw-sim-input" value="' . esc_attr($eps) . '"></div>';
-        $output .= '      <div class="jtw-form-row"><label for="jtw-sim-growth-rate">Estimated Annual Earnings Growth (%):</label><input type="number" step="0.1" id="jtw-sim-growth-rate" class="jtw-sim-input" value="' . esc_attr($growth_default) . '"></div>';
-        $output .= '      <div class="jtw-form-row"><label for="jtw-sim-dividend-yield">Estimated Annual Dividend Yield (%):</label><input type="number" step="0.01" id="jtw-sim-dividend-yield" class="jtw-sim-input" value="' . esc_attr($dividend_yield_default) . '"></div>';
+        $output .= '  <div class="jtw-peg-pegy-calculator">';
+        $output .= '    <div class="jtw-peg-pegy-inputs-grid">';
+        $output .= '      <div class="jtw-form-group"><label for="jtw-sim-stock-price">Stock Price ($):</label><input type="number" step="0.01" id="jtw-sim-stock-price" class="jtw-sim-input" value="' . esc_attr($stock_price) . '"></div>';
+        $output .= '      <div class="jtw-form-group"><label for="jtw-sim-eps">Earnings per Share ($):</label><input type="number" step="0.01" id="jtw-sim-eps" class="jtw-sim-input" value="' . esc_attr($eps) . '"></div>';
+        $output .= '      <div class="jtw-form-group"><label for="jtw-sim-growth-rate">Estimated Annual Earnings Growth (%):</label><input type="number" step="0.1" id="jtw-sim-growth-rate" class="jtw-sim-input" value="' . esc_attr($growth_default) . '"></div>';
+        $output .= '      <div class="jtw-form-group"><label for="jtw-sim-dividend-yield">Estimated Annual Dividend Yield (%):</label><input type="number" step="0.01" id="jtw-sim-dividend-yield" class="jtw-sim-input" value="' . esc_attr($dividend_yield_default) . '"></div>';
         $output .= '    </div>';
+        
         $output .= '    <div class="jtw-peg-pegy-results">';
-        $output .= '      <div class="jtw-result-item"><span class="jtw-result-label">PEG Ratio:</span> <span id="jtw-peg-value" class="jtw-result-value">-</span></div>';
-        $output .= '      <div class="jtw-result-item"><span class="jtw-result-label">PEGY Ratio:</span> <span id="jtw-pegy-value" class="jtw-result-value">-</span></div>';
+        $output .= '      <div class="jtw-bar-result">';
+        $output .= '          <span class="jtw-result-label">PEG Ratio</span>';
+        $output .= '          <div class="jtw-bar-container">';
+        $output .= '              <div id="jtw-peg-bar" class="jtw-bar"><span id="jtw-peg-value" class="jtw-bar-value">-</span></div>';
+        $output .= '          </div>';
+        $output .= '      </div>';
+        $output .= '      <div class="jtw-bar-result">';
+        $output .= '          <span class="jtw-result-label">PEGY Ratio</span>';
+        $output .= '          <div class="jtw-bar-container">';
+        $output .= '              <div id="jtw-pegy-bar" class="jtw-bar"><span id="jtw-pegy-value" class="jtw-bar-value">-</span></div>';
+        $output .= '          </div>';
+        $output .= '      </div>';
         $output .= '    </div>';
+        
         $output .= '  </div>';
         $output .= '</div></section>';
         return $output;
@@ -197,8 +201,7 @@ class Journey_To_Wealth_Public {
         $chart_configs = [
             'price' => ['title' => 'Price History (10Y)', 'type' => 'line', 'prefix' => '$'],
             'revenue' => ['title' => 'Revenue', 'type' => 'bar', 'prefix' => '$'],
-            'net_income' => ['title' => 'Net Income', 'type' => 'bar', 'prefix' => '$'],
-            'ebitda' => ['title' => 'EBITDA', 'type' => 'bar', 'prefix' => '$'],
+            'income_comparison' => ['title' => 'Operating Income vs. Net Income', 'type' => 'bar', 'prefix' => '$'],
             'eps' => ['title' => 'EPS', 'type' => 'bar', 'prefix' => '$'],
             'cash_amount' => ['title' => 'Dividend Per Share', 'type' => 'bar', 'prefix' => '$'],
             'fcf' => ['title' => 'Free Cash Flow', 'type' => 'bar', 'prefix' => '$'],
@@ -210,32 +213,29 @@ class Journey_To_Wealth_Public {
             $annual_data = $historical_data['annual'][$key] ?? [];
             $quarterly_data = $historical_data['quarterly'][$key] ?? [];
     
-            // Determine if there's data to show
             $has_data = false;
             if (!empty($annual_data)) {
-                if (isset($annual_data['datasets'])) { // Stacked chart
-                    $has_data = !empty(array_filter($annual_data['datasets'][0]['data'])) || !empty(array_filter($annual_data['datasets'][1]['data']));
-                } else { // Simple chart
+                if (isset($annual_data['datasets']) && is_array($annual_data['datasets'])) {
+                    foreach($annual_data['datasets'] as $dataset) {
+                        if(!empty($dataset['data']) && count(array_filter($dataset['data'])) > 0) {
+                            $has_data = true;
+                            break;
+                        }
+                    }
+                } elseif (isset($annual_data['data'])) {
                     $has_data = !empty(array_filter($annual_data['data']));
                 }
             }
-            if (!$has_data && !empty($quarterly_data)) {
-                 if (isset($quarterly_data['datasets'])) { // Stacked chart
-                    $has_data = !empty(array_filter($quarterly_data['datasets'][0]['data'])) || !empty(array_filter($quarterly_data['datasets'][1]['data']));
-                } else { // Simple chart
-                    $has_data = !empty(array_filter($quarterly_data['data']));
-                }
-            }
     
-            // If no data for either period, skip rendering this chart item
-            if (!$has_data) {
-                continue;
-            }
+            if (!$has_data) continue;
 
             $chart_id = 'chart-' . strtolower(str_replace(' ', '-', $key)) . '-' . uniqid();
+            // **FIX:** Added a wrapper div around the canvas for responsive control.
             $output .= '<div class="jtw-chart-item">';
             $output .= '<h5>' . esc_html($config['title']) . '</h5>';
+            $output .= '<div class="jtw-chart-wrapper">';
             $output .= '<canvas id="' . esc_attr($chart_id) . '"></canvas>';
+            $output .= '</div>';
             $output .= "<script type='application/json' class='jtw-chart-data' 
                             data-chart-id='" . esc_attr($chart_id) . "' 
                             data-chart-type='" . esc_attr($config['type']) . "'
@@ -274,7 +274,7 @@ class Journey_To_Wealth_Public {
         $output .= '<div class="jtw-valuation-summary-box-container">';
         foreach ($valuation_data as $model_name => $result) {
             if (is_wp_error($result)) {
-                continue; // Skip failed models
+                continue;
             }
             $modal_id = 'modal-' . sanitize_key($model_name);
             $output .= '<div class="jtw-valuation-summary-box">';
@@ -283,7 +283,6 @@ class Journey_To_Wealth_Public {
             $output .= '    <button class="jtw-modal-trigger" data-modal-target="#' . $modal_id . '">' . esc_html__('View Assumptions', 'journey-to-wealth') . '</button>';
             $output .= '</div>';
             
-            // Modal Content for this model
             $output .= '<div id="' . $modal_id . '" class="jtw-modal">';
             $output .= '  <div class="jtw-modal-content">';
             $output .= '    <span class="jtw-modal-close">&times;</span>';
@@ -298,21 +297,20 @@ class Journey_To_Wealth_Public {
             $output .= '  </div>';
             $output .= '</div>';
         }
-        $output .= '</div>'; // Close summary-box-container
-        $output .= '<div class="jtw-modal-overlay"></div>'; // Single overlay for all modals
+        $output .= '</div>';
+        $output .= '<div class="jtw-modal-overlay"></div>';
         $output .= '</section>';
         return $output;
     }
 
     private function create_metric_card($title, $value, $prefix = '', $custom_class = '', $use_large_number_format = false) {
-        $formatted_value = 'N/A'; // Default value
+        $formatted_value = 'N/A';
     
         if (is_numeric($value)) {
             if ($use_large_number_format) {
                 $final_prefix = ($title === 'Shares Outstanding') ? '' : $prefix;
                 $formatted_value = $this->format_large_number($value, $final_prefix);
             } else {
-                // Standard number format
                 $temp_val = number_format((float)$value, 2);
                 if ($prefix === '$') {
                     $formatted_value = $prefix . $temp_val;
@@ -323,8 +321,6 @@ class Journey_To_Wealth_Public {
                 }
             }
         } elseif (!empty($value)) {
-            // It's not a number but it's not empty, so use the string value directly.
-            // This handles cases like "N/A" or "N/A - No Data...".
             $formatted_value = $value;
         }
     
@@ -346,7 +342,6 @@ class Journey_To_Wealth_Public {
         $polygon_client = new Polygon_Client( $api_key );
         $calculator = new Journey_To_Wealth_Key_Metrics_Calculator();
 
-        // Fetch all data points
         $details = $polygon_client->get_ticker_details($ticker);
         if (is_wp_error($details)) { wp_send_json_error(['message' => 'API Error (Ticker Details): ' . $details->get_error_message()]); return; }
         
@@ -365,16 +360,13 @@ class Journey_To_Wealth_Public {
         $dividends_raw = $polygon_client->get_dividends($ticker);
         if (is_wp_error($dividends_raw)) { $dividends_raw = []; }
 
-        // Correctly extract the 'results' array from the raw API response.
         $financials_annual = !is_wp_error($financials_annual_raw) ? $financials_annual_raw : [];
         $financials_quarterly = !is_wp_error($financials_quarterly_raw) ? $financials_quarterly_raw : [];
         $dividends = !is_wp_error($dividends_raw) ? $dividends_raw : [];
         $historical_prices = !is_wp_error($historical_prices_raw) ? $historical_prices_raw : [];
 
-        // --- Calculate Q4 data and inject it into the quarterly financials ---
         $financials_quarterly = $this->calculate_q4_financials($financials_annual, $financials_quarterly);
         
-        // --- Process Core & Relative Metrics Data ---
         $stock_price = $prev_close_data['c'] ?? 0;
         $market_cap = $details['market_cap'] ?? 0;
         $shares_outstanding = $details['share_class_shares_outstanding'] ?? 0;
@@ -383,6 +375,23 @@ class Journey_To_Wealth_Public {
         if (empty($stock_price) || empty($market_cap) || empty($shares_outstanding)) {
             wp_send_json_error(['message' => 'Core data missing from API response.']);
             return;
+        }
+
+        $ttm_dividend_per_share = 0;
+        if (!empty($dividends)) {
+            $one_year_ago = new DateTime('-1 year');
+            foreach ($dividends as $dividend) {
+                if (isset($dividend['ex_dividend_date']) && isset($dividend['cash_amount'])) {
+                    $dividend_date = new DateTime($dividend['ex_dividend_date']);
+                    if ($dividend_date > $one_year_ago) {
+                        $ttm_dividend_per_share += (float)$dividend['cash_amount'];
+                    }
+                }
+            }
+        }
+        $dividend_yield = 0;
+        if ($stock_price > 0 && $ttm_dividend_per_share > 0) {
+            $dividend_yield = ($ttm_dividend_per_share / $stock_price) * 100;
         }
 
         $latest_financials = !empty($financials_annual) ? $financials_annual[0] : null;
@@ -407,12 +416,11 @@ class Journey_To_Wealth_Public {
             ],
             'pegyRatio' => [
                 'pe' => is_numeric($calculator->calculate_pe_ratio($stock_price, $eps)) ? $calculator->calculate_pe_ratio($stock_price, $eps) : null,
-                'dividendYield' => isset($details['dividend_yield']) && is_numeric($details['dividend_yield']) ? (float)$details['dividend_yield'] * 100 : 0,
+                'dividendYield' => $dividend_yield,
                 'defaultGrowth' => is_numeric($calculator->calculate_historical_eps_growth($financials_annual)) ? $calculator->calculate_historical_eps_growth($financials_annual) * 100 : null,
             ]
         ];
         
-        // --- Create Master Labels for X-Axis Standardization ---
         $annual_labels = [];
         if (!empty($financials_annual)) {
             foreach ($financials_annual as $report) {
@@ -429,12 +437,11 @@ class Journey_To_Wealth_Public {
             }
         }
         $unique_annual_labels = array_unique($annual_labels);
-        rsort($unique_annual_labels); // Sort years in descending order to find the latest
-        $latest_10_years = array_slice($unique_annual_labels, 0, 10); // Get the latest 10 years
-        sort($latest_10_years); // Sort back to ascending for the chart's x-axis
+        rsort($unique_annual_labels);
+        $latest_10_years = array_slice($unique_annual_labels, 0, 10);
+        sort($latest_10_years);
         $master_labels_annual = $latest_10_years;
     
-       // --- Create Master Labels for X-Axis Standardization (Quarterly) ---
         $all_quarterly_periods = [];
 
         if (!empty($financials_quarterly)) {
@@ -493,14 +500,11 @@ class Journey_To_Wealth_Public {
             }
         }
 
-
-        // --- Process data for Historical Trends charts ---
         $historical_data = [
             'annual' => [
                 'price' => $this->process_price_data($historical_prices),
                 'revenue' => $this->process_financial_chart_data($financials_annual, $master_labels_annual, 'revenues', 'income_statement'),
-                'net_income' => $this->process_financial_chart_data($financials_annual, $master_labels_annual, 'net_income_loss', 'income_statement'),
-                'ebitda' => $this->process_ebitda_chart_data($financials_annual, $master_labels_annual),
+                'income_comparison' => $this->process_income_comparison_chart_data($financials_annual, $master_labels_annual),
                 'eps' => $this->process_financial_chart_data($financials_annual, $master_labels_annual, 'diluted_earnings_per_share', 'income_statement'),
                 'cash_amount' => $this->process_dividend_chart_data($dividends, $master_labels_annual, 'annual'),
                 'fcf' => $this->process_fcf_chart_data($financials_annual, $master_labels_annual),
@@ -510,8 +514,7 @@ class Journey_To_Wealth_Public {
             'quarterly' => [
                 'price' => $this->process_price_data($historical_prices),
                 'revenue' => $this->process_financial_chart_data($financials_quarterly, $master_labels_quarterly, 'revenues', 'income_statement'),
-                'net_income' => $this->process_financial_chart_data($financials_quarterly, $master_labels_quarterly, 'net_income_loss', 'income_statement'),
-                'ebitda' => $this->process_ebitda_chart_data($financials_quarterly, $master_labels_quarterly),
+                'income_comparison' => $this->process_income_comparison_chart_data($financials_quarterly, $master_labels_quarterly),
                 'eps' => $this->process_financial_chart_data($financials_quarterly, $master_labels_quarterly, 'diluted_earnings_per_share', 'income_statement'),
                 'cash_amount' => $this->process_dividend_chart_data($dividends, $master_labels_quarterly, 'quarterly'),
                 'fcf' => $this->process_fcf_chart_data($financials_quarterly, $master_labels_quarterly),
@@ -520,7 +523,6 @@ class Journey_To_Wealth_Public {
             ]
         ];
         
-        // --- Intrinsic Valuation ---
         $valuation_data = [];
         $sic_description = strtolower($details['sic_description'] ?? '');
         $is_financial_or_reit = (strpos($sic_description, 'reit') !== false) || (strpos($sic_description, 'bank') !== false) || (strpos($sic_description, 'financial') !== false);
@@ -545,7 +547,6 @@ class Journey_To_Wealth_Public {
             $valuation_data['DCF Model'] = $dcf_model->calculate($financials_annual, $details, $prev_close_data);
         }
 
-        // --- Valuation Summary for Chart ---
         $successful_valuations = [];
         foreach($valuation_data as $result) {
             if (!is_wp_error($result) && isset($result['intrinsic_value_per_share'])) {
@@ -568,9 +569,6 @@ class Journey_To_Wealth_Public {
         wp_send_json_success(['html' => $html]);
     }
 
-     /**
-     * Calculate Q4 data from annual and the first three quarters.
-     */
     private function calculate_q4_financials($financials_annual, $financials_quarterly) {
         $annuals_by_year = [];
         foreach ($financials_annual as $report) {
@@ -586,7 +584,6 @@ class Journey_To_Wealth_Public {
 
         foreach ($annuals_by_year as $year => $annual_report) {
             if (isset($quarters_by_year[$year]) && count($quarters_by_year[$year]) === 3) {
-                // We likely have Q1, Q2, Q3 and can calculate Q4
                 $q1 = $quarters_by_year[$year]['Q1'] ?? null;
                 $q2 = $quarters_by_year[$year]['Q2'] ?? null;
                 $q3 = $quarters_by_year[$year]['Q3'] ?? null;
@@ -607,10 +604,9 @@ class Journey_To_Wealth_Public {
                         foreach($annual_report['financials'][$statement] as $key => $metric) {
                             $annual_val = $metric['value'];
                             
-                            // For balance sheets and specific non-cumulative keys, Q4 is the same as the annual report.
                             if ($statement === 'balance_sheet' || in_array($key, $snapshot_keys)) {
                                 $q4_val = $annual_val;
-                            } else { // For income and cash flow, subtract the first three quarters.
+                            } else {
                                 $q1_val = $q1['financials'][$statement][$key]['value'] ?? 0;
                                 $q2_val = $q2['financials'][$statement][$key]['value'] ?? 0;
                                 $q3_val = $q3['financials'][$statement][$key]['value'] ?? 0;
@@ -631,7 +627,6 @@ class Journey_To_Wealth_Public {
         return $financials_quarterly;
     }
     
-    // --- Data Processing Helpers for Charts ---
     private function process_price_data($price_data) {
         if (is_wp_error($price_data) || empty($price_data)) {
             return ['labels' => [], 'data' => []];
@@ -654,7 +649,6 @@ class Journey_To_Wealth_Public {
             return ['labels' => $master_labels, 'data' => array_fill(0, count($master_labels), 0)];
         }
     
-        // Determine if we are processing annual or quarterly data based on the label format.
         $is_quarterly = strpos($master_labels[0], 'Q') !== false;
     
         $data_map = [];
@@ -665,7 +659,7 @@ class Journey_To_Wealth_Public {
                     $year_short = substr($report['fiscal_year'], -2);
                     $label = $report['fiscal_period'] . "'" . $year_short;
                 }
-            } else { // Annual
+            } else {
                 if (isset($report['fiscal_year'])) {
                     $label = $report['fiscal_year'];
                 }
@@ -703,7 +697,7 @@ class Journey_To_Wealth_Public {
                     $year_short = substr($report['fiscal_year'], -2);
                     $label = $report['fiscal_period'] . "'" . $year_short;
                 }
-            } else { // Annual
+            } else {
                 if (isset($report['fiscal_year'])) {
                     $label = $report['fiscal_year'];
                 }
@@ -714,7 +708,6 @@ class Journey_To_Wealth_Public {
                 $op_cf = $this->find_financial_value($cash_flow, 'net_cash_flow_from_operating_activities');
                 $investing_cf = $this->find_financial_value($cash_flow, 'net_cash_flow_from_investing_activities');
                 
-                // FCF = Operating Cash Flow + Net Cash Flow From Investing (as investing is usually a negative value)
                 if ($op_cf !== null && $investing_cf !== null) {
                     $data_map[$label] = $op_cf + $investing_cf;
                 }
@@ -747,7 +740,7 @@ class Journey_To_Wealth_Public {
                     $year_short = substr($report['fiscal_year'], -2);
                     $label = $report['fiscal_period'] . "'" . $year_short;
                 }
-            } else { // Annual
+            } else {
                 if (isset($report['fiscal_year'])) {
                     $label = $report['fiscal_year'];
                 }
@@ -760,18 +753,10 @@ class Journey_To_Wealth_Public {
                 $current_liabilities = $this->find_financial_value($balance_sheet, 'current_liabilities');
                 $noncurrent_liabilities = $this->find_financial_value($balance_sheet, 'noncurrent_liabilities');
                 
-                if ($current_assets !== null) {
-                    $current_assets_map[$label] = $current_assets;
-                }
-                if ($noncurrent_assets !== null) {
-                    $noncurrent_assets_map[$label] = $noncurrent_assets;
-                }
-                if ($current_liabilities !== null) {
-                    $current_liabilities_map[$label] = $current_liabilities;
-                }
-                 if ($noncurrent_liabilities !== null) {
-                    $noncurrent_liabilities_map[$label] = $noncurrent_liabilities;
-                }
+                if ($current_assets !== null) $current_assets_map[$label] = $current_assets;
+                if ($noncurrent_assets !== null) $noncurrent_assets_map[$label] = $noncurrent_assets;
+                if ($current_liabilities !== null) $current_liabilities_map[$label] = $current_liabilities;
+                if ($noncurrent_liabilities !== null) $noncurrent_liabilities_map[$label] = $noncurrent_liabilities;
             }
         }
     
@@ -798,18 +783,19 @@ class Journey_To_Wealth_Public {
         ];
     }
 
-    private function process_ebitda_chart_data($financials, $master_labels) {
+    private function process_income_comparison_chart_data($financials, $master_labels) {
         if (is_wp_error($financials) || empty($financials) || empty($master_labels)) {
-            return ['labels' => $master_labels, 'data' => array_fill(0, count($master_labels), 0)];
+            return ['labels' => $master_labels, 'datasets' => []];
         }
     
         $is_quarterly = strpos($master_labels[0], 'Q') !== false;
-        $data_map = [];
+        $operating_income_map = [];
+        $net_income_map = [];
     
         foreach ($financials as $report) {
             $label = '';
             if ($is_quarterly) {
-                if (isset($report['fiscal_period']) && isset($report['fiscal_year'])) {
+                if (isset($report['fiscal_period'], $report['fiscal_year'])) {
                     $year_short = substr($report['fiscal_year'], -2);
                     $label = $report['fiscal_period'] . "'" . $year_short;
                 }
@@ -822,19 +808,31 @@ class Journey_To_Wealth_Public {
             if (!empty($label)) {
                 $income_statement = $report['financials']['income_statement'] ?? [];
                 $operating_income = $this->find_financial_value($income_statement, 'operating_income_loss');
-                $depreciation_amortization = $this->find_financial_value($income_statement, 'depreciation_and_amortization');
-                if (is_numeric($operating_income) && is_numeric($depreciation_amortization)) {
-                    $data_map[$label] = $operating_income + $depreciation_amortization;
+                $net_income = $this->find_financial_value($income_statement, 'net_income_loss');
+                
+                if ($operating_income !== null) {
+                    $operating_income_map[$label] = $operating_income;
+                }
+                if ($net_income !== null) {
+                    $net_income_map[$label] = $net_income;
                 }
             }
         }
     
-        $final_data = [];
+        $operating_income_data = [];
+        $net_income_data = [];
         foreach ($master_labels as $label) {
-            $final_data[] = $data_map[$label] ?? 0;
+            $operating_income_data[] = $operating_income_map[$label] ?? 0;
+            $net_income_data[] = $net_income_map[$label] ?? 0;
         }
     
-        return ['labels' => $master_labels, 'data' => $final_data];
+        return [
+            'labels' => $master_labels,
+            'datasets' => [
+                ['label' => 'Operating Income', 'data' => $operating_income_data],
+                ['label' => 'Net Income', 'data' => $net_income_data]
+            ]
+        ];
     }
 
     private function process_dividend_chart_data($dividends, $master_labels, $timeframe = 'annual') {
@@ -853,7 +851,7 @@ class Journey_To_Wealth_Public {
                     $data_map[$year] += (float)$dividend['cash_amount'];
                 }
             }
-        } else { // Quarterly
+        } else {
              foreach ($dividends as $dividend) {
                 if (isset($dividend['ex_dividend_date']) && isset($dividend['cash_amount'])) {
                     $date = new DateTime($dividend['ex_dividend_date']);

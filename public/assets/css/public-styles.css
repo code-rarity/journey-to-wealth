@@ -41,11 +41,11 @@
     position: relative;
     max-width: 400px;
     width: 100%;
-    display: flex; /* Added for vertical centering */
-    align-items: center; /* Added for vertical centering */
+    display: flex; 
+    align-items: center; 
 }
 .jtw-header-lookup-form .jtw-input-group-seamless {
-    width: 100%; /* Ensure the input group itself takes full width */
+    width: 100%; 
     position: relative;
     display: flex;
     align-items: center;
@@ -139,70 +139,101 @@
 .jtw-metric-card { background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid var(--jtw-border-color-light); text-align: center; }
 .jtw-metric-title { font-size: 0.9em; font-weight: 500; color: var(--jtw-text-light); margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px; }
 .jtw-metric-value { font-size: 1.75em; font-weight: 600; color: var(--jtw-text-dark); line-height: 1.2; }
-.jtw-interactive-card .jtw-interactive-card-inner-grid {
+
+/* --- PEG/PEGY Calculator (Updated Styles) --- */
+.jtw-section-description {
+    margin: -10px 0 20px 0;
+    font-size: 0.95em;
+    color: var(--jtw-text-medium);
+    line-height: 1.6;
+}
+.jtw-interactive-card .jtw-peg-pegy-calculator {
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
+}
+.jtw-interactive-card .jtw-peg-pegy-inputs-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
-    align-items: center;
 }
-.jtw-interactive-card .jtw-growth-input-group, 
-.jtw-interactive-card .jtw-sub-metric-group {
-    border: none;
-    padding: 0;
-    margin: 0;
-    text-align: left;
-}
-.jtw-interactive-card .jtw-sub-metric-group {
-    border-left: 1px solid var(--jtw-border-color-light);
-    padding-left: 20px;
-}
-.jtw-peg-pegy-form .jtw-form-row {
+.jtw-interactive-card .jtw-form-group {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    margin-bottom: 15px;
 }
-.jtw-peg-pegy-form label {
+.jtw-interactive-card .jtw-form-group label {
     font-weight: 500;
-    margin-bottom: 5px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: var(--jtw-text-dark);
+    text-align: left;
 }
 .jtw-sim-input {
     width: 100%;
-    padding: 8px;
+    padding: 10px;
     border: 1px solid var(--jtw-border-color);
     border-radius: 6px;
+    font-size: 1em;
+    background-color: var(--jtw-content-bg);
 }
+.jtw-sim-input:focus {
+    border-color: var(--jtw-primary-blue);
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2);
+    outline: none;
+}
+
 .jtw-peg-pegy-results {
-    padding-left: 20px;
-    border-left: 1px solid var(--jtw-border-color-light);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 15px;
+    margin-top: 10px;
 }
-.jtw-result-item {
+.jtw-bar-result {
     display: flex;
-    justify-content: space-between;
-    font-size: 1.2em;
-    margin-bottom: 15px;
+    flex-direction: column;
+    gap: 8px;
 }
 .jtw-result-label {
-    font-weight: bold;
+    font-size: 1em;
+    color: var(--jtw-text-medium);
+    font-weight: 500;
+    text-align: left;
 }
-.jtw-result-value {
-    font-weight: 600;
+.jtw-bar-container {
+    width: 100%;
+    height: 35px;
+    background-color: var(--jtw-page-bg);
+    border-radius: 6px;
+    border: 1px solid var(--jtw-border-color-light);
 }
+.jtw-bar {
+    height: 100%;
+    width: 0;
+    border-radius: 5px;
+    background-color: var(--jtw-text-light);
+    transition: width 0.5s ease-out, background-color 0.5s ease;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+.jtw-bar.good { background-color: var(--jtw-green-positive); }
+.jtw-bar.fair { background-color: var(--jtw-yellow-neutral); }
+.jtw-bar.poor { background-color: var(--jtw-red-negative); }
+
+.jtw-bar-value {
+    padding: 0 10px;
+    color: white;
+    font-weight: 700;
+    font-size: 1.1em;
+    text-shadow: 1px 1px 1px rgba(0,0,0,0.2);
+    white-space: nowrap;
+}
+
 @media (max-width: 768px) {
-    .jtw-interactive-card .jtw-interactive-card-inner-grid {
+    .jtw-interactive-card .jtw-peg-pegy-inputs-grid {
         grid-template-columns: 1fr;
     }
-    .jtw-peg-pegy-results {
-        border-left: none;
-        padding-left: 0;
-        border-top: 1px solid var(--jtw-border-color-light);
-        margin-top: 20px;
-        padding-top: 20px;
-    }
 }
-.text-green-600 { color: var(--jtw-green-positive); }
-.text-yellow-600 { color: var(--jtw-yellow-neutral); }
-.text-red-600 { color: var(--jtw-red-negative); }
 
 
 /* --- Historical Trends & Charts --- */
@@ -233,37 +264,46 @@
     font-weight: 600;
 }
 .jtw-historical-charts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-    gap: 25px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
 }
 .jtw-chart-item {
-    position: relative; /* Acts as a positioning context for the canvas */
-    height: 350px; /* Defines a stable height for the chart's container */
-    padding: 20px;
-    background-color: #f8f9fa;
-    border: 1px solid var(--jtw-border-color-light);
+    background-color: #ffffff;
+    border: 1px solid var(--jtw-border-color);
     border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 300px; 
+    box-sizing: border-box;
 }
 .jtw-chart-item h5 {
     text-align: center;
     margin-top: 0;
     margin-bottom: 15px;
-    font-size: 1.1em;
+    font-size: 1em;
     color: var(--jtw-text-dark);
+    flex-shrink: 0;
 }
+.jtw-chart-wrapper {
+    position: relative;
+    width: 100%;
+    flex-grow: 1;
+    min-height: 250px; 
+}
+
 
 /* --- Intrinsic Valuation Section --- */
 #section-intrinsic-valuation {
     padding-bottom: 25px; 
 }
 .jtw-valuation-chart-container {
+    display: flex;
     position: relative;
     width: 100%;
-    height: 250px;
-    margin: 20px 0 40px 0;
-    padding: 30px 20px 30px 0; /* No left padding */
-    box-sizing: border-box;
+    height: 180px; 
+    margin: 20px 0 30px 0;
 }
 .jtw-valuation-range-container {
     position: absolute;
@@ -299,7 +339,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 15px 0; /* Remove horizontal padding */
+    padding: 15px 0;
     border-bottom: 1px solid var(--jtw-border-color-light);
     background: none;
 }
@@ -381,4 +421,7 @@
 }
 .jtw-modal-content li {
     margin-bottom: 8px;
+}
+.yoast {
+    display: none !important;
 }
