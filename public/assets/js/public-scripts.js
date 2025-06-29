@@ -90,7 +90,6 @@
 
                 $valueEl.text(value.toFixed(2) + 'x');
                 
-                // Set a max value for the bar visualization (e.g., 2.0)
                 const max_val = 2.0;
                 const width_percent = Math.min((Math.abs(value) / max_val) * 100, 100);
                 $bar.css('width', width_percent + '%');
@@ -134,19 +133,73 @@
         const fairValue = parseFloat($chartContainer.data('fair-value'));
         const percentageDiff = parseFloat($chartContainer.data('percentage-diff'));
 
-        const undervaluedLimit = fairValue * 0.8;
-        const overvaluedLimit = fairValue * 1.2;
-        const maxValue = Math.max(currentPrice, overvaluedLimit) * 1.1; 
-
-        const undervaluedPercent = (undervaluedLimit / maxValue) * 100;
-        const fairValuePercent = ((overvaluedLimit - undervaluedLimit) / maxValue) * 100;
-        
-        $container.find('.jtw-range-undervalued').css('width', undervaluedPercent + '%');
-        $container.find('.jtw-range-fair').css('width', fairValuePercent + '%');
-        $container.find('.jtw-range-overvalued').css('width', (100 - undervaluedPercent - fairValuePercent) + '%');
-
         const ctx = document.getElementById('jtw-valuation-chart');
         if (!ctx) return;
+        
+        const dynamicBackgroundPlugin = {
+            id: 'dynamicBackground',
+            beforeDatasetsDraw(chart, args, options) {
+                const { ctx, chartArea: { top, bottom, left, right, width, height }, scales: { x, y } } = chart;
+                ctx.save();
+                
+                const fairValueData = chart.data.datasets[0].data[0];
+                const undervaluedLimit = fairValueData * 0.8;
+                const overvaluedLimit = fairValueData * 1.2;
+
+                const undervaluedPixel = x.getPixelForValue(undervaluedLimit);
+                const overvaluedPixel = x.getPixelForValue(overvaluedLimit);
+                
+                ctx.fillStyle = 'rgba(76, 175, 80, 0.15)';
+                ctx.fillRect(left, top, undervaluedPixel - left, height);
+                ctx.fillStyle = 'rgba(255, 193, 7, 0.15)';
+                ctx.fillRect(undervaluedPixel, top, overvaluedPixel - undervaluedPixel, height);
+                ctx.fillStyle = 'rgba(244, 67, 54, 0.15)';
+                ctx.fillRect(overvaluedPixel, top, right - overvaluedPixel, height);
+
+                ctx.restore();
+            }
+        };
+
+        const customLabelsPlugin = {
+            id: 'customLabelsAndLines',
+            afterDraw: (chart) => {
+                const ctx = chart.ctx;
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    if (!meta.hidden) {
+                        meta.data.forEach((element, index) => {
+                            const label = chart.data.labels[index];
+                            const value = dataset.data[index];
+                            const {x, y, base, width, height} = element;
+                            
+                            const labelFontSize = Math.max(height * 0.20, 8);
+                            const valueFontSize = Math.max(height * 0.25, 10);
+
+                            const totalTextHeight = labelFontSize + valueFontSize + 4;
+                            const textYPosition = y - (totalTextHeight / 2);
+
+                            ctx.save();
+                            ctx.fillStyle = 'white';
+                            ctx.textBaseline = 'top';
+                            ctx.font = `bold ${labelFontSize}px Arial`;
+                            ctx.fillText(label, base + 15, textYPosition);
+                            ctx.font = `bold ${valueFontSize}px Arial`;
+                            ctx.fillText('$' + value.toFixed(2), base + 15, textYPosition + labelFontSize + 4);
+                            ctx.restore();
+
+                            ctx.save();
+                            ctx.strokeStyle = '#00BFFF';
+                            ctx.lineWidth = 4;
+                            ctx.beginPath();
+                            ctx.moveTo(x, y - height / 2);
+                            ctx.lineTo(x, y + height / 2);
+                            ctx.stroke();
+                            ctx.restore();
+                        });
+                    }
+                });
+            }
+        };
         
         const valuationChart = new Chart(ctx, {
             type: 'bar',
@@ -154,24 +207,15 @@
                 labels: ['Fair Value', 'Current Price'],
                 datasets: [{
                     data: [fairValue, currentPrice],
-                    backgroundColor: [
-                        function(context) {
-                            const chart = context.chart;
-                            const {ctx, chartArea} = chart;
-                            if (!chartArea) {
-                                return null;
-                            }
-                            const gradient = ctx.createLinearGradient(chartArea.left, 0, chartArea.right, 0);
-                            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.6)');
-                            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                            return gradient;
-                        },
-                        'rgba(0, 0, 0, 0.8)'
-                    ],
+                    backgroundColor: [ 'rgba(0, 0, 0, 0.5)', 'rgba(0, 0, 0, 0.7)'],
                     borderColor: 'transparent',
                     borderWidth: 0,
-                    // **FIX:** Replaced fixed bar thickness with responsive percentage-based settings.
-                    barThickness: 80
+                    barThickness: function(context) {
+                        const chart = context.chart;
+                        const { chartArea } = chart;
+                        if (!chartArea) return 20;
+                        return chartArea.height * 0.4;
+                    },
                 }]
             },
             options: {
@@ -185,7 +229,6 @@
                 scales: {
                     x: {
                         beginAtZero: true,
-                        max: maxValue,
                         ticks: { display: false },
                         grid: { display: false, drawBorder: false }
                     },
@@ -195,45 +238,10 @@
                     }
                 }
             },
-            plugins: [{
-                id: 'customLabelsAndLines',
-                afterDraw: (chart) => {
-                    const ctx = chart.ctx;
-                    chart.data.datasets.forEach((dataset, i) => {
-                        const meta = chart.getDatasetMeta(i);
-                        if (!meta.hidden) {
-                            meta.data.forEach((element, index) => {
-                                const label = chart.data.labels[index];
-                                const value = dataset.data[index];
-                                const {x, y, base, width, height} = element;
-                                
-                                const xPos = base + 15;
-                                const yPos = y - (height / 2) + 15;
-
-                                ctx.save();
-                                ctx.fillStyle = 'white';
-                                ctx.font = 'bold 1.2em Arial';
-                                ctx.textBaseline = 'top';
-                                ctx.fillText(label, xPos, yPos);
-                                ctx.font = 'bold 1.5em Arial';
-                                ctx.fillText('$' + value.toFixed(2), xPos, yPos + 25);
-                                ctx.restore();
-
-                                // Draw the end line
-                                ctx.save();
-                                ctx.strokeStyle = '#00BFFF';
-                                ctx.lineWidth = 4;
-                                ctx.beginPath();
-                                ctx.moveTo(x, y - height / 2);
-                                ctx.lineTo(x, y + height / 2);
-                                ctx.stroke();
-                                ctx.restore();
-                            });
-                        }
-                    });
-                }
-            }]
+            plugins: [dynamicBackgroundPlugin, customLabelsPlugin]
         });
+        
+        $container.find('.jtw-valuation-range-container').remove();
         
         let annotationText = '';
         if (percentageDiff > 10) {
@@ -254,9 +262,8 @@
         const $chartDataScripts = $container.find('.jtw-chart-data');
         if (!$chartDataScripts.length) return;
 
-        let charts = {}; // To hold chart instances for updating
+        let charts = {}; 
 
-        // Helper function to check for data
         const hasData = (data) => {
             if (!data || !data.labels || data.labels.length === 0) return false;
             if (data.datasets && data.datasets.length > 0) {
@@ -277,10 +284,9 @@
             } catch (e) {
                 console.error("Failed to parse annual data for chart:", chartId, e);
                 $chartItem.hide();
-                return; // Skip this chart
+                return; 
             }
             
-            // Initial visibility check (default to annual)
             if (!hasData(annualData)) {
                 $chartItem.hide();
             }
@@ -296,10 +302,7 @@
                     legend: { 
                         display: !!annualData.datasets,
                         position: 'top',
-                        labels: {
-                            boxWidth: 12,
-                            font: { size: 11 }
-                        }
+                        labels: { boxWidth: 12, font: { size: 11 } }
                     },
                     tooltip: {
                         callbacks: {
@@ -317,70 +320,51 @@
                 scales: {
                     x: {
                         stacked: false,
-                        ticks: {
-                            autoSkip: true,
-                            maxRotation: 0,
-                            font: { size: 10 }
-                        }
+                        ticks: { autoSkip: true, maxRotation: 0, font: { size: 10 } }
                     },
                     y: {
                         stacked: false,
                         ticks: {
                             maxTicksLimit: 5, 
-                            callback: function(value) {
-                                return prefix + formatLargeNumber(value).replace('.00','');
-                            },
+                            callback: function(value) { return prefix + formatLargeNumber(value).replace('.00',''); },
                             font: { size: 10 }
                         }
                     }
                 }
             };
 
-            if (chartId.includes('assets-and-liabilities')) {
+            if (chartId.includes('income-comparison')) {
+                options.scales.x.stacked = true;
+                options.scales.y.stacked = true;
+            } else if (chartId.includes('assets-and-liabilities')) {
                 const colors = {
-                    'Current Assets': 'rgba(30, 144, 255, 0.8)',
-                    'Non-current Assets': 'rgba(135, 206, 250, 0.8)',
-                    'Current Liabilities': 'rgba(255, 99, 132, 0.8)',
-                    'Non-current Liabilities': 'rgba(255, 159, 64, 0.8)'
+                    'Current Assets': 'rgba(30, 144, 255, 0.8)', 'Non-current Assets': 'rgba(135, 206, 250, 0.8)',
+                    'Current Liabilities': 'rgba(255, 99, 132, 0.8)', 'Non-current Liabilities': 'rgba(255, 159, 64, 0.8)'
                 };
                 datasets = annualData.datasets.map(ds => ({
-                    label: ds.label,
-                    data: ds.data,
-                    backgroundColor: colors[ds.label],
+                    label: ds.label, data: ds.data, backgroundColor: colors[ds.label],
                     stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
                 }));
                 options.scales.x.stacked = true;
                 options.scales.y.stacked = true;
-            } else if (annualData.datasets) {
+            }
+            
+            if (annualData.datasets && !datasets) {
                  datasets = annualData.datasets.map((dataset, index) => ({
-                    label: dataset.label,
-                    data: dataset.data,
+                    label: dataset.label, data: dataset.data,
                     backgroundColor: index === 0 ? 'rgba(54, 162, 235, 0.6)' : 'rgba(255, 99, 132, 0.6)',
                 }));
-            } else { 
+            } else if (!datasets) { 
                 datasets = [{
-                    label: 'Value',
-                    data: annualData.data,
-                    borderColor: 'rgba(0, 122, 255, 1)',
-                    backgroundColor: 'rgba(0, 122, 255, 0.6)',
-                    fill: chartType === 'line',
-                    tension: 0.1
+                    label: 'Value', data: annualData.data, borderColor: 'rgba(0, 122, 255, 1)',
+                    backgroundColor: 'rgba(0, 122, 255, 0.6)', fill: chartType === 'line', tension: 0.1
                 }];
             }
 
-            const config = {
-                type: chartType,
-                data: {
-                    labels: annualData.labels,
-                    datasets: datasets
-                },
-                options: options
-            };
-            
+            const config = { type: chartType, data: { labels: annualData.labels, datasets: datasets }, options: options };
             charts[chartId] = new Chart(ctx, config);
         });
 
-        // Event listener for the toggle buttons
         $container.find('.jtw-period-button').on('click', function() {
             const $button = $(this);
             if ($button.hasClass('active')) return;
@@ -411,15 +395,11 @@
 
                     if (chartId.includes('assets-and-liabilities')) {
                         const colors = {
-                            'Current Assets': 'rgba(30, 144, 255, 0.8)',
-                            'Non-current Assets': 'rgba(135, 206, 250, 0.8)',
-                            'Current Liabilities': 'rgba(255, 99, 132, 0.8)',
-                            'Non-current Liabilities': 'rgba(255, 159, 64, 0.8)'
+                            'Current Assets': 'rgba(30, 144, 255, 0.8)', 'Non-current Assets': 'rgba(135, 206, 250, 0.8)',
+                            'Current Liabilities': 'rgba(255, 99, 132, 0.8)', 'Non-current Liabilities': 'rgba(255, 159, 64, 0.8)'
                         };
                         chart.data.datasets = dataToUse.datasets.map(ds => ({
-                            label: ds.label,
-                            data: ds.data,
-                            backgroundColor: colors[ds.label],
+                            label: ds.label, data: ds.data, backgroundColor: colors[ds.label],
                             stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
                         }));
                     } else if (dataToUse.datasets) { 
@@ -485,80 +465,91 @@
     }
 
     function initializeHeaderSearch() {
-        const $headerForm = $('.jtw-header-lookup-form');
-        if (!$headerForm.length) return;
+        const $headerForms = $('.jtw-header-lookup-form');
+        if (!$headerForms.length) return;
 
-        const $input = $headerForm.find('.jtw-header-ticker-input');
-        const $button = $headerForm.find('.jtw-header-fetch-button');
-        const $resultsContainer = $headerForm.find('.jtw-header-search-results');
-        let searchRequest;
+        $headerForms.each(function() {
+            const $form = $(this);
+            const $input = $form.find('.jtw-header-ticker-input');
+            const $button = $form.find('.jtw-header-fetch-button');
+            const $resultsContainer = $form.find('.jtw-header-search-results');
+            let searchRequest;
 
-        function redirectToAnalysisPage(ticker) {
-            const analysisPageUrl = jtw_public_params.analysis_page_url || '/';
-            window.location.href = analysisPageUrl + '?jtw_selected_symbol=' + ticker;
-        }
-        
-        $button.on('click', function() {
-            const ticker = $input.val().toUpperCase().trim();
-            if (ticker) {
-                redirectToAnalysisPage(ticker);
+            function redirectToAnalysisPage(ticker) {
+                const analysisPageUrl = jtw_public_params.analysis_page_url || '/';
+                window.location.href = analysisPageUrl + '?jtw_selected_symbol=' + ticker;
             }
-        });
-
-        $input.on('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                $button.trigger('click');
-            }
-        });
-
-        $input.on('keyup', debounce(function(event) {
-            if (event.key === "Enter") return;
-
-            const keywords = $input.val().trim();
-            if (keywords.length < 2) {
-                $resultsContainer.empty().hide();
-                return;
-            }
-
-            $resultsContainer.html('<div class="jtw-search-loading">' + getLocalizedText('text_searching', 'Searching...') + '</div>').show();
-
-            if (searchRequest) {
-                searchRequest.abort();
-            }
-
-            searchRequest = $.ajax({
-                url: jtw_public_params.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'jtw_symbol_search',
-                    jtw_symbol_search_nonce: jtw_public_params.symbol_search_nonce,
-                    keywords: keywords
-                },
-                dataType: 'json',
-                success: function(response) {
-                    $resultsContainer.empty(); 
-                    if (response.success && response.data.matches && response.data.matches.length > 0) {
-                        const $ul = $('<ul>').addClass('jtw-symbol-results-list');
-                        response.data.matches.forEach(function(match) {
-                            const $li = $('<li>').addClass('jtw-header-result-item').attr('data-symbol', match.symbol).html('<strong>' + match.symbol + '</strong> - ' + match.name);
-                            $ul.append($li);
-                        });
-                        $resultsContainer.append($ul).show();
-                    } else {
-                        $resultsContainer.html('<div class="jtw-no-results">' + getLocalizedText('text_no_results', 'No symbols found.') + '</div>').show();
-                    }
-                },
-                error: function(jqXHR, textStatus) {
-                    if (textStatus !== 'abort') { 
-                        $resultsContainer.html('<div class="jtw-error notice notice-error inline"><p>' + getLocalizedText('text_error', 'Search request failed.') + '</p></div>').show();
-                    }
+            
+            $button.on('click', function() {
+                const ticker = $input.val().toUpperCase().trim();
+                if (ticker) {
+                    redirectToAnalysisPage(ticker);
                 }
             });
-        }, 500));
 
-        $headerForm.on('click', '.jtw-header-result-item', function() {
-            redirectToAnalysisPage($(this).data('symbol'));
+            $input.on('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    $button.trigger('click');
+                }
+            });
+
+            $input.on('keyup', debounce(function(event) {
+                if (event.key === "Enter") return;
+
+                const keywords = $input.val().trim();
+                if (keywords.length < 2) {
+                    $resultsContainer.empty().hide();
+                    return;
+                }
+
+                $resultsContainer.html('<div class="jtw-search-loading">' + getLocalizedText('text_searching', 'Searching...') + '</div>').show();
+
+                if (searchRequest) {
+                    searchRequest.abort();
+                }
+
+                searchRequest = $.ajax({
+                    url: jtw_public_params.ajax_url,
+                    type: 'POST',
+                    data: {
+                        action: 'jtw_symbol_search',
+                        jtw_symbol_search_nonce: jtw_public_params.symbol_search_nonce,
+                        keywords: keywords
+                    },
+                    dataType: 'json',
+                    success: function(response) {
+                        console.log(response);
+                        $resultsContainer.empty(); 
+                        if (response.success && response.data.matches && response.data.matches.length > 0) {
+                            const $ul = $('<ul>').addClass('jtw-symbol-results-list');
+                            response.data.matches.forEach(function(match) {
+                                let iconHtml = '<span class="jtw-result-icon-placeholder"></span>';
+                                if (match.icon_url) {
+                                    iconHtml = `<img src="${match.icon_url}" class="jtw-result-icon" alt="${match.name} logo">`;
+                                }
+
+                                const $li = $('<li>').addClass('jtw-header-result-item').attr('data-symbol', match.ticker).html(
+                                    iconHtml + '<div class="jtw-result-text"><strong>' + match.ticker + '</strong> - ' + match.name + '</div>'
+                                );
+                                $ul.append($li);
+                            });
+                            $resultsContainer.append($ul).show();
+                        } else {
+                            $resultsContainer.html('<div class="jtw-no-results">' + getLocalizedText('text_no_results', 'No symbols found.') + '</div>').show();
+                        }
+                    },
+                    error: function(jqXHR, textStatus) {
+                        if (textStatus !== 'abort') { 
+                            $resultsContainer.html('<div class="jtw-error notice notice-error inline"><p>' + getLocalizedText('text_error', 'Search request failed.') + '</p></div>').show();
+                        }
+                    }
+                });
+            }, 500));
+
+            $form.on('click', '.jtw-header-result-item', function() {
+                redirectToAnalysisPage($(this).data('symbol'));
+            });
         });
         
         $(document).on('click', function(event) {

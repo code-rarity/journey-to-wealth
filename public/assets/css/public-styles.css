@@ -37,13 +37,16 @@
 
 
 /* --- Header Ticker Lookup Form --- */
-.jtw-header-lookup-form {
+.jtw-header-lookup-form, 
+.jtw-header-lookup-container, 
+.jtw-mobile-header-lookup-container {
     position: relative;
     max-width: 400px;
     width: 100%;
-    display: flex; 
-    align-items: center; 
+    display: flex;
+    align-items: center;
 }
+
 .jtw-header-lookup-form .jtw-input-group-seamless {
     width: 100%; 
     position: relative;
@@ -263,10 +266,12 @@
     border-color: var(--jtw-primary-blue);
     font-weight: 600;
 }
+
 .jtw-historical-charts-grid {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 20px;
+    align-items: start;
 }
 .jtw-chart-item {
     background-color: #ffffff;
@@ -275,7 +280,6 @@
     padding: 20px;
     display: flex;
     flex-direction: column;
-    flex: 1 1 300px; 
     box-sizing: border-box;
 }
 .jtw-chart-item h5 {
@@ -284,13 +288,12 @@
     margin-bottom: 15px;
     font-size: 1em;
     color: var(--jtw-text-dark);
-    flex-shrink: 0;
 }
 .jtw-chart-wrapper {
     position: relative;
     width: 100%;
     flex-grow: 1;
-    min-height: 250px; 
+    height: 300px; 
 }
 
 
@@ -299,27 +302,12 @@
     padding-bottom: 25px; 
 }
 .jtw-valuation-chart-container {
-    display: flex;
     position: relative;
     width: 100%;
-    height: 180px; 
+    aspect-ratio: 4 / 1;
+    min-height: 180px; 
     margin: 20px 0 30px 0;
 }
-.jtw-valuation-range-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    z-index: 0;
-}
-.jtw-range-undervalued, .jtw-range-fair, .jtw-range-overvalued {
-    height: 100%;
-}
-.jtw-range-undervalued { background-color: rgba(76, 175, 80, 0.15); }
-.jtw-range-fair { background-color: rgba(255, 193, 7, 0.15); }
-.jtw-range-overvalued { background-color: rgba(244, 67, 54, 0.15); }
 
 .jtw-valuation-annotation {
     position: absolute;
@@ -424,4 +412,30 @@
 }
 .yoast {
     display: none !important;
+}
+
+/* --- Responsive Chart Adjustments --- */
+@media (max-width: 768px) {
+    .jtw-chart-wrapper {
+        height: auto; 
+        aspect-ratio: 1 / 1;
+    }
+
+    .jtw-valuation-chart-container {
+        aspect-ratio: 3 / 1;
+    }
+}
+
+/* --- Header Search Visibility --- */
+.jtw-mobile-header-lookup-container {
+    display: none;
+}
+
+@media (max-width: 1000px) {
+    .jtw-header-lookup-container {
+        display: none;
+    }
+    .jtw-mobile-header-lookup-container {
+        display: flex;
+    }
 }

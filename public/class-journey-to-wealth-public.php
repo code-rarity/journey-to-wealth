@@ -49,7 +49,24 @@ class Journey_To_Wealth_Public {
             return '';
         }
         $unique_id = 'jtw-header-lookup-' . uniqid();
-        $output = '<div class="jtw-header-lookup-form" id="' . esc_attr($unique_id) . '">';
+        $output = '<div class="jtw-header-lookup-form jtw-header-lookup-container" id="' . esc_attr($unique_id) . '">';
+        $output .= '<div class="jtw-input-group-seamless">';
+        $output .= '<input type="text" class="jtw-header-ticker-input" placeholder="Search Ticker...">';
+        $output .= '<button type="button" class="jtw-header-fetch-button" title="Analyze Stock">';
+        $output .= '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
+        $output .= '</button>';
+        $output .= '</div>';
+        $output .= '<div class="jtw-header-search-results"></div>';
+        $output .= '</div>';
+        return $output;
+    }
+
+    public function render_mobile_header_lookup_shortcode( $atts ) {
+        if (!is_user_logged_in()) {
+            return '';
+        }
+        $unique_id = 'jtw-mobile-header-lookup-' . uniqid();
+        $output = '<div class="jtw-header-lookup-form jtw-mobile-header-lookup-container" id="' . esc_attr($unique_id) . '">';
         $output .= '<div class="jtw-input-group-seamless">';
         $output .= '<input type="text" class="jtw-header-ticker-input" placeholder="Search Ticker...">';
         $output .= '<button type="button" class="jtw-header-fetch-button" title="Analyze Stock">';
@@ -70,6 +87,45 @@ class Journey_To_Wealth_Public {
         $output .= '</div>';
         $output .= '</div>';
         return $output;
+    }
+
+    public function ajax_symbol_search() {
+        check_ajax_referer( 'jtw_symbol_search_nonce_action', 'jtw_symbol_search_nonce' );
+
+        $keywords = isset($_POST['keywords']) ? sanitize_text_field($_POST['keywords']) : '';
+        if (empty($keywords)) {
+            wp_send_json_error(['matches' => []]);
+            return;
+        }
+
+        $api_key = get_option('jtw_api_key');
+        if (empty($api_key)) {
+            wp_send_json_error(['message' => 'API Key not configured.']);
+            return;
+        }
+
+        $polygon_client = new Polygon_Client($api_key);
+        $results = $polygon_client->search_tickers($keywords);
+
+        if (is_wp_error($results) || empty($results['results'])) {
+            wp_send_json_success(['matches' => []]);
+            return;
+        }
+
+        $matches = array_map(function($item) {
+            $icon_url = '';
+            // **FIX:** Correctly retrieve the icon_url without appending the API key.
+            if (isset($item['branding']['icon_url'])) {
+                $icon_url = $item['branding']['icon_url'];
+            }
+            return [
+                'ticker' => $item['ticker'],
+                'name'   => $item['name'],
+                'icon_url' => $icon_url
+            ];
+        }, $results['results']);
+
+        wp_send_json_success(['matches' => $matches]);
     }
 
     private function find_financial_value($financial_statement_section, $key) {
@@ -230,7 +286,6 @@ class Journey_To_Wealth_Public {
             if (!$has_data) continue;
 
             $chart_id = 'chart-' . strtolower(str_replace(' ', '-', $key)) . '-' . uniqid();
-            // **FIX:** Added a wrapper div around the canvas for responsive control.
             $output .= '<div class="jtw-chart-item">';
             $output .= '<h5>' . esc_html($config['title']) . '</h5>';
             $output .= '<div class="jtw-chart-wrapper">';
@@ -260,11 +315,6 @@ class Journey_To_Wealth_Public {
                              data-current-price="' . esc_attr($summary['current_price']) . '"
                              data-fair-value="' . esc_attr($summary['fair_value']) . '"
                              data-percentage-diff="' . esc_attr($summary['percentage_diff']) . '">
-                             <div class="jtw-valuation-range-container">
-                                <div class="jtw-range-undervalued"></div>
-                                <div class="jtw-range-fair"></div>
-                                <div class="jtw-range-overvalued"></div>
-                             </div>
                             <canvas id="jtw-valuation-chart"></canvas>
                         </div>';
         } else {
@@ -359,6 +409,12 @@ class Journey_To_Wealth_Public {
 
         $dividends_raw = $polygon_client->get_dividends($ticker);
         if (is_wp_error($dividends_raw)) { $dividends_raw = []; }
+
+        $benzinga_earnings = [];
+        $earnings_data = $polygon_client->get_benzinga_earnings( $ticker );
+        if ( !is_wp_error($earnings_data) ) {
+            $benzinga_earnings = $earnings_data;
+        }
 
         $financials_annual = !is_wp_error($financials_annual_raw) ? $financials_annual_raw : [];
         $financials_quarterly = !is_wp_error($financials_quarterly_raw) ? $financials_quarterly_raw : [];
@@ -544,7 +600,7 @@ class Journey_To_Wealth_Public {
         
         if (!$is_financial_or_reit) {
             $dcf_model = new Journey_To_Wealth_DCF_Model();
-            $valuation_data['DCF Model'] = $dcf_model->calculate($financials_annual, $details, $prev_close_data);
+            $valuation_data['DCF Model'] = $dcf_model->calculate($financials_annual, $details, $prev_close_data, $benzinga_earnings);
         }
 
         $successful_valuations = [];

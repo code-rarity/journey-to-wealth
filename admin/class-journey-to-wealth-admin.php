@@ -25,7 +25,7 @@ class Journey_To_Wealth_Admin {
 
     private $plugin_name;
     private $version;
-    private $settings_page_slug = 'journey-to-wealth-settings';
+    private $settings_page_slug = 'jtw-api-settings';
 
 
     public function __construct( $plugin_name, $version ) {
@@ -42,25 +42,12 @@ class Journey_To_Wealth_Admin {
     }
 
     public function add_plugin_admin_menu() {
-        // Add main menu page
-        add_menu_page(
-            __( 'Journey to Wealth', 'journey-to-wealth' ), // Page title
-            __( 'Journey to Wealth', 'journey-to-wealth' ), // Menu title
-            'manage_options',                         // Capability
-            $this->settings_page_slug,                // Menu slug
-            array( $this, 'display_plugin_settings_page' ), // Function
-            'dashicons-chart-line',                   // Icon URL
-            75                                        // Position
-        );
-
-        // Add API Settings submenu page (as the main settings page)
-        add_submenu_page(
-            $this->settings_page_slug,                // Parent slug
-            __( 'API Settings', 'journey-to-wealth' ),  // Page title
-            __( 'API Settings', 'journey-to-wealth' ),  // Menu title
-            'manage_options',                         // Capability
-            $this->settings_page_slug,                // Menu slug (same as parent to make it the default)
-            array( $this, 'display_plugin_settings_page' )  // Function
+        add_options_page(
+            __( 'Journey To Wealth Settings', 'journey-to-wealth' ), // Page title
+            __( 'Journey To Wealth', 'journey-to-wealth' ),      // Menu title
+            'manage_options',                                     // Capability
+            $this->settings_page_slug,                            // Menu slug
+            array( $this, 'display_plugin_settings_page' )       // Function to display the page
         );
     }
 
@@ -72,7 +59,7 @@ class Journey_To_Wealth_Admin {
                 <?php
                 settings_fields( 'jtw_api_settings_group' );
                 do_settings_sections( $this->settings_page_slug );
-                submit_button( __( 'Save API Settings', 'journey-to-wealth' ) );
+                submit_button( __( 'Save Settings', 'journey-to-wealth' ) );
                 ?>
             </form>
         </div>
@@ -80,23 +67,24 @@ class Journey_To_Wealth_Admin {
     }
 
     public function register_settings() {
-        // Register API Settings Section
+        $settings_group = 'jtw_api_settings_group';
+
+        register_setting( $settings_group, 'jtw_api_key', array( $this, 'sanitize_api_key' ) );
+
         add_settings_section(
-            'jtw_api_settings_section',               // ID
-            __( 'Polygon.io API Key', 'journey-to-wealth' ), // Title
-            array( $this, 'jtw_api_settings_section_callback' ), // Callback
-            $this->settings_page_slug                 // Page on which to show it
+            'jtw_api_settings_section',
+            __( 'Polygon.io API Key', 'journey-to-wealth' ),
+            array( $this, 'jtw_api_settings_section_callback' ),
+            $this->settings_page_slug
         );
 
-        // Register API Key Setting Field
         add_settings_field(
-            'jtw_api_key',                            // ID
-            __( 'API Key', 'journey-to-wealth' ),       // Title
-            array( $this, 'jtw_api_key_render' ),       // Callback
-            $this->settings_page_slug,                // Page
-            'jtw_api_settings_section'                // Section
+            'jtw_api_key',
+            __( 'API Key', 'journey-to-wealth' ),
+            array( $this, 'jtw_api_key_render' ),
+            $this->settings_page_slug,
+            'jtw_api_settings_section'
         );
-        register_setting( 'jtw_api_settings_group', 'jtw_api_key', array( $this, 'sanitize_api_key' ) );
     }
 
     public function sanitize_api_key( $input ) {
@@ -104,14 +92,11 @@ class Journey_To_Wealth_Admin {
     }
     
     public function jtw_api_settings_section_callback() {
-        echo '<p>' . esc_html__( 'Enter your Polygon.io API key below. You can obtain a free API key from the Polygon.io website.', 'journey-to-wealth' ) . '</p>';
+        echo '<p>' . esc_html__( 'Enter your API key from Polygon.io. This key will be used for all data, including Benzinga analyst ratings if your plan supports it.', 'journey-to-wealth' ) . '</p>';
     }
 
     public function jtw_api_key_render() {
         $api_key = get_option( 'jtw_api_key' );
-        ?>
-        <input type='text' name='jtw_api_key' value='<?php echo esc_attr( $api_key ); ?>' class='regular-text'>
-        <p class="description"><?php esc_html_e( 'Your API key for accessing Polygon.io data.', 'journey-to-wealth' ); ?></p>
-        <?php
+        echo "<input type='text' name='jtw_api_key' value='" . esc_attr( $api_key ) . "' class='regular-text'>";
     }
 }

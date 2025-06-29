@@ -27,9 +27,6 @@ class Polygon_Client {
         $this->api_key = $api_key;
     }
 
-    /**
-     * Centralized function to perform API requests.
-     */
     private function do_request( $endpoint, $params = [] ) {
         $params['apiKey'] = $this->api_key;
         $url = $this->base_url . $endpoint . '?' . http_build_query($params);
@@ -50,20 +47,16 @@ class Polygon_Client {
             return new WP_Error( 'json_decode_error', __( 'Failed to decode JSON response from Polygon.io API.', 'journey-to-wealth' ) );
         }
         
-        // Polygon.io error handling
         if ( isset($data['status']) && ($data['status'] === 'ERROR' || $data['status'] === 'DELAYED') ) {
             return new WP_Error( 'polygon_api_error', isset($data['error']) ? esc_html($data['error']) : 'Unknown Polygon.io API error.');
         }
-        if ( isset($data['message']) ) { // Some errors might come this way
+        if ( isset($data['message']) && !isset($data['results']) ) {
             return new WP_Error( 'polygon_api_message', esc_html($data['message']));
         }
 
         return $data;
     }
 
-    /**
-     * Fetches company details like name, market cap, shares outstanding.
-     */
     public function get_ticker_details( $ticker ) {
         $ticker = sanitize_text_field( strtoupper( $ticker ) );
         $transient_key = 'jtw_poly_details_' . $ticker;
@@ -74,7 +67,8 @@ class Polygon_Client {
         }
 
         $endpoint = '/v3/reference/tickers/' . $ticker;
-        $data = $this->do_request($endpoint);
+        $params = ['expand' => 'branding']; 
+        $data = $this->do_request($endpoint, $params);
 
         if (is_wp_error($data)) {
             return $data;
@@ -89,9 +83,6 @@ class Polygon_Client {
         return $results;
     }
     
-    /**
-     * Fetches the previous day's close price for a ticker.
-     */
     public function get_previous_close( $ticker ) {
         $ticker = sanitize_text_field( strtoupper( $ticker ) );
         $transient_key = 'jtw_poly_prev_close_' . $ticker;
@@ -117,9 +108,6 @@ class Polygon_Client {
         return $results;
     }
 
-    /**
-     * Fetches financial statements using CIK for continuity or ticker as a fallback.
-     */
     public function get_financials( $ticker, $details, $timeframe = 'annual' ) {
         $cik = $details['cik'] ?? null;
         $identifier = $cik ? $cik : sanitize_text_field(strtoupper($ticker));
@@ -156,9 +144,6 @@ class Polygon_Client {
         return $results;
     }
 
-    /**
-     * Fetches historical daily stock prices.
-     */
     public function get_daily_aggregates($ticker, $timespan = 'year', $multiplier = 10) {
         $ticker = sanitize_text_field( strtoupper( $ticker ) );
         $from = date('Y-m-d', strtotime("-{$multiplier} {$timespan}"));
@@ -182,9 +167,6 @@ class Polygon_Client {
         return $data['results'];
     }
 
-    /**
-     * Fetches historical dividend data.
-     */
     public function get_dividends($ticker) {
         $ticker = sanitize_text_field( strtoupper( $ticker ) );
         $transient_key = 'jtw_poly_divs_' . $ticker;
@@ -209,5 +191,46 @@ class Polygon_Client {
         
         set_transient($transient_key, $data['results'], $this->cache_expiration);
         return $data['results'];
+    }
+
+    public function get_benzinga_earnings($ticker) {
+        $ticker = sanitize_text_field( strtoupper( $ticker ) );
+        $transient_key = 'jtw_poly_benzinga_earnings_' . $ticker;
+
+        $cached_data = get_transient($transient_key);
+        if (false !== $cached_data) {
+            return $cached_data;
+        }
+
+        $endpoint = '/benzinga/v1/earnings';
+        $params = [
+            'ticker' => $ticker,
+            'limit' => 20,
+        ];
+        $data = $this->do_request($endpoint, $params);
+
+        if (is_wp_error($data)) {
+            return $data;
+        }
+        
+        if (!isset($data['results'])) {
+            return new WP_Error('no_earnings_data', 'No Benzinga earnings data found.');
+        }
+
+        set_transient($transient_key, $data['results'], 3600);
+        return $data['results'];
+    }
+
+    /**
+     * **CORRECTED:** Renamed to search_tickers for clarity and uses the 'search' parameter for lookups.
+     * The 'expand=branding' parameter correctly fetches logo URLs for this endpoint.
+     */
+    public function search_tickers($query) {
+        $params = [
+            'search' => $query,
+            'active' => 'true',
+            'limit' => 10
+        ];
+        return $this->do_request('/v3/reference/tickers', $params);
     }
 }
