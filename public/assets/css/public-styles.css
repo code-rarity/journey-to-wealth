@@ -41,10 +41,10 @@
 .jtw-header-lookup-container, 
 .jtw-mobile-header-lookup-container {
     position: relative;
-    max-width: 400px;
     width: 100%;
     display: flex;
     align-items: center;
+    flex-grow: 1; 
 }
 
 .jtw-header-lookup-form .jtw-input-group-seamless {
@@ -80,15 +80,74 @@
     background-color: #eef2ff;
 }
 .jtw-header-search-results {
-    position: absolute; top: 100%; left: 0; right: 0;
+    position: absolute; top: calc(100% + 5px); left: 0; right: 0;
     background-color: var(--jtw-content-bg); border: 1px solid var(--jtw-border-color);
-    border-top: none; border-radius: 0 0 6px 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.08);
-    z-index: 1000; max-height: 300px; overflow-y: auto; display: none;
+    border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    z-index: 1000; max-height: 400px; overflow-y: auto; display: none;
 }
-.jtw-header-search-results ul { list-style: none; padding: 0; margin: 0; }
-.jtw-header-search-results li { padding: 10px 15px; cursor: pointer; border-bottom: 1px solid var(--jtw-border-color-light); }
-.jtw-header-search-results li:hover { background-color: #eef2ff; }
-.jtw-header-search-results li strong { color: var(--jtw-primary-blue); }
+.jtw-header-search-results ul { list-style: none; padding: 5px; margin: 0; }
+.jtw-header-search-results li { padding: 12px 15px; cursor: pointer; border-radius: 6px; }
+.jtw-header-search-results li:hover { background-color: #f1f3f5; }
+
+/* --- **NEW** SWS Style Search Result Item --- */
+.jtw-header-result-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.jtw-result-icon-wrapper {
+    flex-shrink: 0;
+}
+
+.jtw-result-icon {
+    width: 75px;
+    height: 75px;
+    border-radius: 6px;
+    object-fit: contain;
+    background-color: #fff;
+    border: 1px solid var(--jtw-border-color-light);
+}
+
+.jtw-result-icon-placeholder {
+    width: 75px;
+    height: 75px;
+    border-radius: 6px;
+    background-color: #e9ecef;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.jtw-result-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: hidden;
+}
+
+.jtw-result-name {
+    font-weight: 600;
+    color: var(--jtw-text-dark);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jtw-result-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85em;
+    color: var(--jtw-text-light);
+}
+
+.jtw-result-flag {
+    width: 16px;
+    height: auto;
+    border-radius: 2px;
+    box-shadow: 0 0 1px rgba(0,0,0,0.5);
+}
 
 
 /* --- Main Analyzer Wrapper (for the analysis page) --- */
@@ -240,13 +299,22 @@
 
 
 /* --- Historical Trends & Charts --- */
-.jtw-period-toggle {
+.jtw-chart-controls {
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 25px;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 15px;
 }
-.jtw-period-button {
+
+.jtw-period-toggle, .jtw-chart-filter-toggle {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.jtw-period-button, .jtw-category-button {
     background-color: var(--jtw-page-bg);
     border: 1px solid var(--jtw-border-color);
     color: var(--jtw-text-medium);
@@ -256,11 +324,11 @@
     font-weight: 500;
     transition: all 0.2s ease;
 }
-.jtw-period-button:hover {
+.jtw-period-button:hover, .jtw-category-button:hover {
     background-color: #e9ecef;
     border-color: #ced4da;
 }
-.jtw-period-button.active {
+.jtw-period-button.active, .jtw-category-button.active {
     background-color: var(--jtw-primary-blue);
     color: #fff;
     border-color: var(--jtw-primary-blue);
@@ -424,6 +492,21 @@
     .jtw-valuation-chart-container {
         aspect-ratio: 3 / 1;
     }
+
+    .jtw-header-result-item {
+        gap: 12px;
+    }
+    .jtw-result-icon,
+    .jtw-result-icon-placeholder {
+        width: 40px;
+        height: 40px;
+    }
+    .jtw-result-name {
+        font-size: 0.9em;
+    }
+    .jtw-result-meta {
+        font-size: 0.8em;
+    }
 }
 
 /* --- Header Search Visibility --- */
@@ -438,4 +521,11 @@
     .jtw-mobile-header-lookup-container {
         display: flex;
     }
+}
+
+/* --- SALIENT THEME OVERRIDE FOR FULL-WIDTH SEARCH --- */
+.right-aligned-menu-items {
+    width: 100%;
+    flex: 1;
+    max-width: 480px;
 }

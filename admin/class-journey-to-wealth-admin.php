@@ -13,19 +13,11 @@
  * @package    Journey_To_Wealth
  * @subpackage Journey_To_Wealth/admin
  */
-
-/**
- * The admin-specific functionality of the plugin.
- *
- * @package    Journey_To_Wealth
- * @subpackage Journey_To_Wealth/admin
- * @author     Your Name or Company <email@example.com>
- */
 class Journey_To_Wealth_Admin {
 
     private $plugin_name;
     private $version;
-    private $settings_page_slug = 'jtw-api-settings';
+    private $settings_page_slug = 'jtw-settings';
 
 
     public function __construct( $plugin_name, $version ) {
@@ -43,11 +35,11 @@ class Journey_To_Wealth_Admin {
 
     public function add_plugin_admin_menu() {
         add_options_page(
-            __( 'Journey To Wealth Settings', 'journey-to-wealth' ), // Page title
-            __( 'Journey To Wealth', 'journey-to-wealth' ),      // Menu title
-            'manage_options',                                     // Capability
-            $this->settings_page_slug,                            // Menu slug
-            array( $this, 'display_plugin_settings_page' )       // Function to display the page
+            __( 'Journey To Wealth Settings', 'journey-to-wealth' ),
+            __( 'Journey To Wealth', 'journey-to-wealth' ),
+            'manage_options',
+            $this->settings_page_slug,
+            array( $this, 'display_plugin_settings_page' )
         );
     }
 
@@ -57,6 +49,7 @@ class Journey_To_Wealth_Admin {
             <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
             <form action="options.php" method="post">
                 <?php
+                // **REFACTORED** Use a single settings group.
                 settings_fields( 'jtw_api_settings_group' );
                 do_settings_sections( $this->settings_page_slug );
                 submit_button( __( 'Save Settings', 'journey-to-wealth' ) );
@@ -69,17 +62,18 @@ class Journey_To_Wealth_Admin {
     public function register_settings() {
         $settings_group = 'jtw_api_settings_group';
 
-        register_setting( $settings_group, 'jtw_api_key', array( $this, 'sanitize_api_key' ) );
+        // **REFACTORED** Register the new Alpha Vantage API key setting.
+        register_setting( $settings_group, 'jtw_av_api_key', array( $this, 'sanitize_api_key' ) );
 
         add_settings_section(
             'jtw_api_settings_section',
-            __( 'Polygon.io API Key', 'journey-to-wealth' ),
+            __( 'Alpha Vantage API Key', 'journey-to-wealth' ),
             array( $this, 'jtw_api_settings_section_callback' ),
             $this->settings_page_slug
         );
 
         add_settings_field(
-            'jtw_api_key',
+            'jtw_av_api_key', // **REFACTORED** Use the new key ID.
             __( 'API Key', 'journey-to-wealth' ),
             array( $this, 'jtw_api_key_render' ),
             $this->settings_page_slug,
@@ -92,11 +86,13 @@ class Journey_To_Wealth_Admin {
     }
     
     public function jtw_api_settings_section_callback() {
-        echo '<p>' . esc_html__( 'Enter your API key from Polygon.io. This key will be used for all data, including Benzinga analyst ratings if your plan supports it.', 'journey-to-wealth' ) . '</p>';
+        // **REFACTORED** Update help text for Alpha Vantage.
+        echo '<p>' . esc_html__( 'Enter your premium API key from Alpha Vantage. This key is required for all data fetching.', 'journey-to-wealth' ) . '</p>';
     }
 
     public function jtw_api_key_render() {
-        $api_key = get_option( 'jtw_api_key' );
-        echo "<input type='text' name='jtw_api_key' value='" . esc_attr( $api_key ) . "' class='regular-text'>";
+        // **REFACTORED** Get and display the Alpha Vantage API key.
+        $api_key = get_option( 'jtw_av_api_key' );
+        echo "<input type='text' name='jtw_av_api_key' value='" . esc_attr( $api_key ) . "' class='regular-text'>";
     }
 }

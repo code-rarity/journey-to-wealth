@@ -80,7 +80,6 @@
                 pe = stockPrice / eps;
             }
     
-            // Function to update a bar based on a value
             function updateBar($bar, $valueEl, value) {
                 if (isNaN(value) || value === null || !isFinite(value)) {
                     $valueEl.text('-');
@@ -279,6 +278,20 @@
             const chartType = $script.data('chart-type');
             const prefix = $script.data('prefix');
             let annualData;
+
+            let colors = ['rgba(0, 122, 255, 0.6)', 'rgba(0, 122, 255, 1)'];
+            const colorsAttr = $script.attr('data-colors');
+            if (colorsAttr) {
+                try {
+                    const parsedColors = JSON.parse(colorsAttr);
+                    if(Array.isArray(parsedColors) && parsedColors.length > 0) {
+                        colors = parsedColors;
+                    }
+                } catch (e) {
+                    console.error("Failed to parse colors JSON for chart:", chartId, e);
+                }
+            }
+
             try {
                 annualData = JSON.parse($script.attr('data-annual'));
             } catch (e) {
@@ -332,32 +345,28 @@
                     }
                 }
             };
-
-            if (chartId.includes('income-comparison')) {
-                options.scales.x.stacked = true;
-                options.scales.y.stacked = true;
-            } else if (chartId.includes('assets-and-liabilities')) {
-                const colors = {
-                    'Current Assets': 'rgba(30, 144, 255, 0.8)', 'Non-current Assets': 'rgba(135, 206, 250, 0.8)',
-                    'Current Liabilities': 'rgba(255, 99, 132, 0.8)', 'Non-current Liabilities': 'rgba(255, 159, 64, 0.8)'
-                };
-                datasets = annualData.datasets.map(ds => ({
-                    label: ds.label, data: ds.data, backgroundColor: colors[ds.label],
-                    stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
-                }));
+            
+            if (chartId.includes('price')) {
+                options.elements = { point: { radius: 0, hoverRadius: 4 }, line: { tension: 0.1 } };
+                options.scales.x.type = 'time';
+                options.scales.x.time = { unit: 'year' };
+                options.scales.x.grid = { display: false };
+            } else if (chartId.includes('cash-and-debt') || chartId.includes('expenses')) {
                 options.scales.x.stacked = true;
                 options.scales.y.stacked = true;
             }
             
-            if (annualData.datasets && !datasets) {
+            if (annualData.datasets) {
                  datasets = annualData.datasets.map((dataset, index) => ({
                     label: dataset.label, data: dataset.data,
-                    backgroundColor: index === 0 ? 'rgba(54, 162, 235, 0.6)' : 'rgba(255, 99, 132, 0.6)',
+                    backgroundColor: colors[index] || 'rgba(0, 122, 255, 0.6)',
                 }));
-            } else if (!datasets) { 
+            } else { 
                 datasets = [{
-                    label: 'Value', data: annualData.data, borderColor: 'rgba(0, 122, 255, 1)',
-                    backgroundColor: 'rgba(0, 122, 255, 0.6)', fill: chartType === 'line', tension: 0.1
+                    label: 'Value', data: annualData.data,
+                    borderColor: colors[0],
+                    backgroundColor: chartType === 'line' ? colors[1] : colors[0],
+                    fill: chartType === 'line',
                 }];
             }
 
@@ -365,6 +374,7 @@
             charts[chartId] = new Chart(ctx, config);
         });
 
+        // **FIX:** The period toggle now respects the active category filter.
         $container.find('.jtw-period-button').on('click', function() {
             const $button = $(this);
             if ($button.hasClass('active')) return;
@@ -372,6 +382,8 @@
             const period = $button.data('period');
             $container.find('.jtw-period-button').removeClass('active');
             $button.addClass('active');
+            
+            const activeCategory = $container.find('.jtw-category-button.active').data('category');
 
             $chartDataScripts.each(function() {
                 const $script = $(this);
@@ -389,20 +401,13 @@
                      return;
                 }
                 
-                if (hasData(dataToUse)) {
+                const chartCategory = $chartItem.data('category');
+
+                if (hasData(dataToUse) && (activeCategory === 'all' || chartCategory === activeCategory)) {
                     $chartItem.show();
                     chart.data.labels = dataToUse.labels;
 
-                    if (chartId.includes('assets-and-liabilities')) {
-                        const colors = {
-                            'Current Assets': 'rgba(30, 144, 255, 0.8)', 'Non-current Assets': 'rgba(135, 206, 250, 0.8)',
-                            'Current Liabilities': 'rgba(255, 99, 132, 0.8)', 'Non-current Liabilities': 'rgba(255, 159, 64, 0.8)'
-                        };
-                        chart.data.datasets = dataToUse.datasets.map(ds => ({
-                            label: ds.label, data: ds.data, backgroundColor: colors[ds.label],
-                            stack: ds.label.includes('Assets') ? 'Assets' : 'Liabilities'
-                        }));
-                    } else if (dataToUse.datasets) { 
+                    if (dataToUse.datasets) { 
                         chart.data.datasets.forEach((dataset, index) => {
                             if(dataToUse.datasets[index]) {
                                 dataset.data = dataToUse.datasets[index].data;
@@ -417,6 +422,30 @@
                     $chartItem.hide();
                 }
             });
+        });
+
+        $container.find('.jtw-category-button').on('click', function() {
+            const $button = $(this);
+            if ($button.hasClass('active')) return;
+
+            const selectedCategory = $button.data('category');
+            $container.find('.jtw-category-button').removeClass('active');
+            $button.addClass('active');
+
+            const $chartsGrid = $container.find('.jtw-historical-charts-grid');
+
+            if (selectedCategory === 'all') {
+                $chartsGrid.find('.jtw-chart-item').show();
+            } else {
+                $chartsGrid.find('.jtw-chart-item').each(function() {
+                    const $chart = $(this);
+                    if ($chart.data('category') === selectedCategory) {
+                        $chart.show();
+                    } else {
+                        $chart.hide();
+                    }
+                });
+            }
         });
     }
 
@@ -498,7 +527,7 @@
                 if (event.key === "Enter") return;
 
                 const keywords = $input.val().trim();
-                if (keywords.length < 2) {
+                if (keywords.length < 1) {
                     $resultsContainer.empty().hide();
                     return;
                 }
@@ -519,19 +548,40 @@
                     },
                     dataType: 'json',
                     success: function(response) {
-                        console.log(response);
                         $resultsContainer.empty(); 
                         if (response.success && response.data.matches && response.data.matches.length > 0) {
                             const $ul = $('<ul>').addClass('jtw-symbol-results-list');
                             response.data.matches.forEach(function(match) {
-                                let iconHtml = '<span class="jtw-result-icon-placeholder"></span>';
+                                const placeholderImgUrl = 'https://beardedinvestor.com/wp-content/uploads/2025/04/Dictionary-Item-Graphic.png';
+                                
+                                let iconHtml;
                                 if (match.icon_url) {
-                                    iconHtml = `<img src="${match.icon_url}" class="jtw-result-icon" alt="${match.name} logo">`;
+                                    iconHtml = `<img src="${match.icon_url}" class="jtw-result-icon" alt="${match.name} logo" onerror="this.onerror=null; this.src='${placeholderImgUrl}';">`;
+                                } else {
+                                    iconHtml = `<img src="${placeholderImgUrl}" class="jtw-result-icon" alt="Placeholder">`;
                                 }
 
-                                const $li = $('<li>').addClass('jtw-header-result-item').attr('data-symbol', match.ticker).html(
-                                    iconHtml + '<div class="jtw-result-text"><strong>' + match.ticker + '</strong> - ' + match.name + '</div>'
-                                );
+                                let flagHtml = '';
+                                if (match.locale && match.locale.toLowerCase() !== 'us') {
+                                    flagHtml = `<img class="jtw-result-flag" src="https://flagcdn.com/w20/${match.locale.toLowerCase()}.png" alt="${match.locale.toUpperCase()} flag">`;
+                                }
+
+                                const $li = $('<li>').addClass('jtw-header-result-item').attr('data-symbol', match.ticker);
+
+                                const itemHtml = `
+                                    <div class="jtw-result-icon-wrapper">
+                                        ${iconHtml}
+                                    </div>
+                                    <div class="jtw-result-details">
+                                        <div class="jtw-result-name">${match.name}</div>
+                                        <div class="jtw-result-meta">
+                                            ${flagHtml}
+                                            <span class="jtw-result-exchange">${match.exchange}:${match.ticker}</span>
+                                        </div>
+                                    </div>
+                                `;
+
+                                $li.html(itemHtml);
                                 $ul.append($li);
                             });
                             $resultsContainer.append($ul).show();

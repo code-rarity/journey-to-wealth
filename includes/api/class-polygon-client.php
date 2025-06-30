@@ -67,8 +67,8 @@ class Polygon_Client {
         }
 
         $endpoint = '/v3/reference/tickers/' . $ticker;
-        $params = ['expand' => 'branding']; 
-        $data = $this->do_request($endpoint, $params);
+        // **FIX:** The 'expand' parameter is not needed here as this endpoint returns full details by default.
+        $data = $this->do_request($endpoint);
 
         if (is_wp_error($data)) {
             return $data;
@@ -222,14 +222,13 @@ class Polygon_Client {
     }
 
     /**
-     * **CORRECTED:** Renamed to search_tickers for clarity and uses the 'search' parameter for lookups.
-     * The 'expand=branding' parameter correctly fetches logo URLs for this endpoint.
+     * **REFACTORED:** Performs a general search and limits the results for performance.
      */
-    public function search_tickers($query) {
+    public function search_tickers($query, $limit = 3) {
         $params = [
             'search' => $query,
             'active' => 'true',
-            'limit' => 10
+            'limit' => $limit
         ];
         return $this->do_request('/v3/reference/tickers', $params);
     }

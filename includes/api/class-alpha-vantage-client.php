@@ -21,10 +21,10 @@ class Alpha_Vantage_Client {
 
     private $api_key;
     private $base_url = 'https://www.alphavantage.co/query';
-    private $cache_expiration_long = 3600;
-    private $cache_expiration_short = 900;
-    private $cache_expiration_statements = 86400;
-    private $cache_expiration_search = 21600;
+    private $cache_expiration_long = 0;//3600;
+    private $cache_expiration_short = 0;//900;
+    private $cache_expiration_statements = 0;//86400;
+    private $cache_expiration_search = 0;//21600;
 
     public function __construct( $api_key ) {
         $this->api_key = $api_key;
@@ -73,6 +73,21 @@ class Alpha_Vantage_Client {
         return $data;
     }
 
+    public function search_symbols( $keywords ) {
+        if ( empty( $this->api_key ) ) return new WP_Error( 'api_key_missing', __( 'API Key not configured.', 'journey-to-wealth' ) );
+        $keywords = sanitize_text_field( $keywords );
+        $params = array( 'function' => 'SYMBOL_SEARCH', 'keywords' => $keywords, 'apikey' => $this->api_key );
+        $transient_key = 'jtw_search_' . md5( $keywords );
+
+        $data = $this->do_request( $params, $transient_key, $this->cache_expiration_search );
+        if (is_wp_error($data)) return $data;
+
+        if ( ! isset( $data['bestMatches'] ) ) {
+            return new WP_Error( 'no_search_results', sprintf( __( 'No search results found for %s.', 'journey-to-wealth' ), $keywords ) );
+        }
+        return $data['bestMatches'];
+    }
+
     public function get_company_overview( $symbol ) {
         if ( empty( $this->api_key ) ) return new WP_Error( 'api_key_missing', __( 'API Key not configured.', 'journey-to-wealth' ) );
         $symbol = sanitize_text_field( strtoupper( $symbol ) );
@@ -115,7 +130,7 @@ class Alpha_Vantage_Client {
         if ( ! isset( $data['annualReports'] ) ) {
             return new WP_Error( 'no_income_statement_data', sprintf( __( 'No annual income statement data found for %s.', 'journey-to-wealth' ), $symbol ) );
         }
-        return $data['annualReports'];
+        return $data; // **FIX:** Return the whole object, not just annualReports
     }
 
     public function get_balance_sheet( $symbol ) {
@@ -130,7 +145,7 @@ class Alpha_Vantage_Client {
         if ( ! isset( $data['annualReports'] ) ) {
             return new WP_Error( 'no_balance_sheet_data', sprintf( __( 'No annual balance sheet data found for %s.', 'journey-to-wealth' ), $symbol ) );
         }
-        return $data['annualReports'];
+        return $data; // **FIX:** Return the whole object
     }
 
     public function get_cash_flow_statement( $symbol ) {
@@ -145,7 +160,7 @@ class Alpha_Vantage_Client {
         if ( ! isset( $data['annualReports'] ) ) {
             return new WP_Error( 'no_cash_flow_data', sprintf( __( 'No annual cash flow data found for %s.', 'journey-to-wealth' ), $symbol ) );
         }
-        return $data['annualReports'];
+        return $data; // **FIX:** Return the whole object
     }
     
     public function get_earnings_data( $symbol ) {
@@ -160,10 +175,24 @@ class Alpha_Vantage_Client {
         if ( !isset( $data['symbol'] ) || ( !isset($data['annualEarnings']) && !isset($data['quarterlyEarnings']) ) ) {
             return new WP_Error( 'no_earnings_data', sprintf( __( 'No earnings data found or unexpected structure for symbol %s.', 'journey-to-wealth' ), $symbol ) );
         }
-        return array(
-            'symbol' => $data['symbol'],
-            'annualEarnings' => $data['annualEarnings'] ?? [],
-            'quarterlyEarnings' => $data['quarterlyEarnings'] ?? []
-        );
+        return $data;
+    }
+
+    /**
+     * **FIX:** Added missing function to get daily adjusted time series data.
+     */
+    public function get_daily_adjusted( $symbol ) {
+        if ( empty( $this->api_key ) ) return new WP_Error( 'api_key_missing', __( 'API Key not configured.', 'journey-to-wealth' ) );
+        $symbol = sanitize_text_field( strtoupper( $symbol ) );
+        $params = array( 'function' => 'TIME_SERIES_DAILY_ADJUSTED', 'symbol' => $symbol, 'outputsize' => 'full', 'apikey' => $this->api_key );
+        $transient_key = 'jtw_daily_adjusted_' . md5( $symbol );
+
+        $data = $this->do_request( $params, $transient_key, $this->cache_expiration_long );
+        if (is_wp_error($data)) return $data;
+
+        if ( !isset( $data['Time Series (Daily)'] ) ) {
+            return new WP_Error( 'no_daily_data', sprintf( __( 'No daily time series data found for %s.', 'journey-to-wealth' ), $symbol ) );
+        }
+        return $data;
     }
 }
