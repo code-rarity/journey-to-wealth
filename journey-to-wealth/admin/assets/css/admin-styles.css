@@ -1,0 +1,127 @@
+/* Admin Styles for Journey to Wealth */
+
+/* Interactive Mapping Page Styles */
+.jtw-mapping-wrap #jtw-mapping-ui-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.jtw-mapping-wrap .jtw-mapping-column {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+}
+
+.jtw-mapping-wrap .jtw-mapping-column h3 {
+    font-size: 14px;
+    padding: 8px 12px;
+    margin: 0;
+    background: #f6f6f6;
+    border-bottom: 1px solid #ccd0d4;
+}
+
+.jtw-mapping-wrap .jtw-list-container {
+    height: 60vh;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.jtw-mapping-wrap #jtw-av-industry-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* **FIXED** Changed selector from .jtw-av-row to .jtw-av-item */
+.jtw-mapping-wrap .jtw-av-item {
+    padding: 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+}
+
+.jtw-mapping-wrap .jtw-av-item:last-child {
+    border-bottom: 0;
+}
+
+.jtw-mapping-wrap .jtw-av-item.active {
+    background-color: #e0f0ff;
+    box-shadow: inset 4px 0 0 #2271b1;
+}
+
+.jtw-mapping-wrap .jtw-assigned-tags {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.jtw-mapping-wrap .jtw-assigned-tag {
+    background-color: #e0e0e0;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.jtw-mapping-wrap .jtw-remove-tag {
+    background: none;
+    border: none;
+    color: #777;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    line-height: 1;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.jtw-mapping-wrap .jtw-remove-tag:hover {
+    color: #d63638;
+}
+
+.jtw-mapping-wrap .jtw-industry-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.jtw-mapping-wrap .jtw-industry-group h4 {
+    margin: 0 0 10px 0;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+}
+
+.jtw-mapping-wrap .jtw-damodaran-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.jtw-mapping-wrap .jtw-damodaran-toggle {
+    background: #f0f0f1;
+    border-color: #dcdcde;
+    color: #444;
+    transition: all 0.1s ease-in-out;
+}
+
+.jtw-mapping-wrap .jtw-damodaran-toggle.active {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+#jtw-ajax-save-status p.error {
+    color: #dc2626;
+}
+
+@media (max-width: 1200px) {
+    .jtw-mapping-wrap #jtw-mapping-ui-container {
+        grid-template-columns: 1fr;
+    }
+}
