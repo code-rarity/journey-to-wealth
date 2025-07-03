@@ -1,0 +1,212 @@
+/* General Admin Styles */
+.jtw-mapping-wrap .notice {
+    margin-left: 0;
+}
+
+/* Mapping UI Container */
+#jtw-mapping-ui-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.jtw-mapping-column {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.jtw-mapping-column h3 {
+    font-size: 14px;
+    padding: 8px 12px;
+    margin: 0;
+    line-height: 1.4;
+    border-bottom: 1px solid #ccd0d4;
+}
+
+.jtw-list-container {
+    padding: 12px;
+    height: 600px;
+    overflow-y: auto;
+}
+
+/* Company/AV List Styles */
+#jtw-company-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.jtw-company-item {
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.jtw-company-item:hover {
+    background-color: #f0f0f1;
+    border-color: #999;
+}
+
+.jtw-company-item.active {
+    background-color: #007cba;
+    border-color: #007cba;
+    color: #fff;
+    font-weight: 600;
+}
+
+.jtw-company-item.active .jtw-company-industry {
+    color: #e0eefc;
+}
+
+.jtw-company-name {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.jtw-company-industry {
+    display: block;
+    font-size: 12px;
+    color: #555;
+    margin-top: 2px;
+}
+
+/* Assigned Tags Styles */
+.jtw-assigned-tags {
+    margin-top: 8px;
+}
+
+.jtw-assigned-tag {
+    display: inline-block;
+    background-color: #e0e0e0;
+    color: #333;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin-right: 5px;
+    margin-bottom: 5px;
+    font-weight: normal;
+}
+
+.jtw-remove-tag {
+    background: none;
+    border: none;
+    color: #777;
+    cursor: pointer;
+    margin-left: 4px;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1;
+}
+.jtw-remove-tag:hover {
+    color: #d63638;
+}
+
+/* Damodaran Toggles */
+.jtw-industry-group {
+    margin-bottom: 15px;
+}
+.jtw-industry-group h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 5px;
+}
+.jtw-damodaran-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.jtw-damodaran-toggle {
+    transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.jtw-damodaran-toggle.active {
+    background-color: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+/* Search and Pagination Controls */
+.jtw-list-controls {
+    position: relative;
+    padding: 12px;
+    border-bottom: 1px solid #ccd0d4;
+}
+
+#jtw-company-search {
+    width: 100%;
+    padding: 8px 12px 8px 35px; /* Add padding for icon */
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.jtw-list-controls::before {
+    content: "\f179"; /* WordPress dashicon for search */
+    font-family: dashicons;
+    position: absolute;
+    top: 50%;
+    left: 22px;
+    transform: translateY(-50%);
+    color: #787c82;
+    pointer-events: none;
+}
+
+.jtw-pagination-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-top: 1px solid #ccd0d4;
+    background: #f9f9f9;
+}
+
+#jtw-page-info {
+    font-size: 13px;
+    color: #555;
+    font-weight: 600;
+}
+
+/* General Settings Page Styles */
+.wrap .postbox {
+    margin-top: 20px;
+}
+
+.wrap .postbox .hndle {
+    cursor: default;
+}
+
+.wrap .postbox .inside {
+    padding: 1px 12px 12px;
+}
+
+.wrap .form-table th {
+    width: 200px;
+}
+
+.jtw-button-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 0;
+}
+
+#poststuff #post-body.columns-2 {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+}
+#post-body-content {
+    grid-column: 1 / 2;
+}
+#postbox-container-1 {
+    grid-column: 2 / 3;
+}

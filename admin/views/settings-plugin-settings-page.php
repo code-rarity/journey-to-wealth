@@ -33,19 +33,21 @@ if ( ! defined( 'WPINC' ) ) {
     <?php endif; ?>
     <?php settings_errors(); ?>
 
-    <form method="post" action="options.php">
-        <?php
-        settings_fields( 'jtw_plugin_settings_group' );
-        do_settings_sections( 'jtw-plugin-settings' );
-        submit_button( __( 'Save API Key', 'journey-to-wealth' ) );
-        ?>
-    </form>
-    
-    <hr>
-
-    <h2><?php esc_html_e( 'Tools', 'journey-to-wealth' ); ?></h2>
     <div class="postbox">
-        <h2 class="hndle"><span><?php esc_html_e( 'Database Reset', 'journey-to-wealth' ); ?></span></h2>
+        <h2 class="hndle"><span><?php esc_html_e( 'Main Settings', 'journey-to-wealth' ); ?></span></h2>
+        <div class="inside">
+            <form method="post" action="options.php">
+                <?php
+                settings_fields( 'jtw_plugin_settings_group' );
+                do_settings_sections( 'jtw-plugin-settings' );
+                submit_button( __( 'Save Settings', 'journey-to-wealth' ) );
+                ?>
+            </form>
+        </div>
+    </div>
+    
+    <div class="postbox">
+        <h2 class="hndle"><span><?php esc_html_e( 'Tools', 'journey-to-wealth' ); ?></span></h2>
         <div class="inside">
             <div class="notice notice-warning inline">
                 <p><strong><?php esc_html_e( 'Important:', 'journey-to-wealth' ); ?></strong> <?php esc_html_e( 'If you are having trouble saving industry mappings (e.g., a selection does not save), you may need to run this reset tool once to update the database structure to the latest version.', 'journey-to-wealth' ); ?></p>

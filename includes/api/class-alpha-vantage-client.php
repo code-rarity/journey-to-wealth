@@ -21,22 +21,17 @@ class Alpha_Vantage_Client {
 
     private $api_key;
     private $base_url = 'https://www.alphavantage.co/query';
-    private $cache_expiration_long = 0;//3600;
-    private $cache_expiration_short = 0;//900;
-    private $cache_expiration_statements = 0;//86400;
-    private $cache_expiration_search = 0;//21600;
+    // **FIX** Set reasonable cache times to prevent stale data.
+    private $cache_expiration_long = 0;//3600; // 1 hour for overview/daily data
+    private $cache_expiration_short = 0;//900; // 15 minutes for quotes
+    private $cache_expiration_statements = 0;//86400; // 24 hours for financial statements
+    private $cache_expiration_search = 0;//21600; // 6 hours for searches
+    private $cache_expiration_yield = 0;//86400; // 24 hours for treasury yield
 
     public function __construct( $api_key ) {
         $this->api_key = $api_key;
     }
 
-    /**
-     * Centralized function to perform API requests and handle common errors.
-     * @param array $params API parameters.
-     * @param string $transient_key The key for caching the result.
-     * @param int $expiration The cache expiration time in seconds.
-     * @return array|WP_Error Parsed data or WP_Error on failure.
-     */
     private function do_request( $params, $transient_key, $expiration ) {
         $cached_data = get_transient( $transient_key );
         if ( false !== $cached_data ) {
@@ -60,7 +55,6 @@ class Alpha_Vantage_Client {
             return new WP_Error( 'json_decode_error', __( 'Failed to decode JSON response from Alpha Vantage API.', 'journey-to-wealth' ) );
         }
 
-        // --- SPECIFIC RATE LIMIT CHECK ---
         if ( isset( $data['Information'] ) && strpos( $data['Information'], 'Thank you for using Alpha Vantage!' ) !== false ) {
             return new WP_Error( 'api_rate_limit', __( 'API call frequency limit reached. Please wait a moment and try again. Free keys have very strict limits.', 'journey-to-wealth' ) );
         }
@@ -130,7 +124,7 @@ class Alpha_Vantage_Client {
         if ( ! isset( $data['annualReports'] ) ) {
             return new WP_Error( 'no_income_statement_data', sprintf( __( 'No annual income statement data found for %s.', 'journey-to-wealth' ), $symbol ) );
         }
-        return $data; // **FIX:** Return the whole object, not just annualReports
+        return $data;
     }
 
     public function get_balance_sheet( $symbol ) {
@@ -145,7 +139,7 @@ class Alpha_Vantage_Client {
         if ( ! isset( $data['annualReports'] ) ) {
             return new WP_Error( 'no_balance_sheet_data', sprintf( __( 'No annual balance sheet data found for %s.', 'journey-to-wealth' ), $symbol ) );
         }
-        return $data; // **FIX:** Return the whole object
+        return $data;
     }
 
     public function get_cash_flow_statement( $symbol ) {
@@ -160,7 +154,7 @@ class Alpha_Vantage_Client {
         if ( ! isset( $data['annualReports'] ) ) {
             return new WP_Error( 'no_cash_flow_data', sprintf( __( 'No annual cash flow data found for %s.', 'journey-to-wealth' ), $symbol ) );
         }
-        return $data; // **FIX:** Return the whole object
+        return $data;
     }
     
     public function get_earnings_data( $symbol ) {
@@ -178,9 +172,6 @@ class Alpha_Vantage_Client {
         return $data;
     }
 
-    /**
-     * **FIX:** Added missing function to get daily adjusted time series data.
-     */
     public function get_daily_adjusted( $symbol ) {
         if ( empty( $this->api_key ) ) return new WP_Error( 'api_key_missing', __( 'API Key not configured.', 'journey-to-wealth' ) );
         $symbol = sanitize_text_field( strtoupper( $symbol ) );
@@ -193,6 +184,28 @@ class Alpha_Vantage_Client {
         if ( !isset( $data['Time Series (Daily)'] ) ) {
             return new WP_Error( 'no_daily_data', sprintf( __( 'No daily time series data found for %s.', 'journey-to-wealth' ), $symbol ) );
         }
+        return $data;
+    }
+
+    public function get_treasury_yield() {
+        if ( empty( $this->api_key ) ) {
+            return new WP_Error( 'api_key_missing', __( 'API Key not configured.', 'journey-to-wealth' ) );
+        }
+        
+        $params = [
+            'function' => 'TREASURY_YIELD',
+            'interval' => 'monthly',
+            'maturity' => '10year',
+            'apikey'   => $this->api_key
+        ];
+        $transient_key = 'jtw_treasury_yield_10y';
+        
+        $data = $this->do_request( $params, $transient_key, $this->cache_expiration_yield ); 
+
+        if ( is_wp_error($data) || !isset( $data['data'][0]['value'] ) ) {
+            return new WP_Error( 'no_treasury_yield_data', __( 'Could not retrieve Treasury Yield data.', 'journey-to-wealth' ) );
+        }
+        
         return $data;
     }
 }

@@ -141,19 +141,20 @@
                 const { ctx, chartArea: { top, bottom, left, right, width, height }, scales: { x, y } } = chart;
                 ctx.save();
                 
-                const fairValueData = chart.data.datasets[0].data[0];
-                const undervaluedLimit = fairValueData * 0.8;
-                const overvaluedLimit = fairValueData * 1.2;
+                const fairValueData = chart.data.datasets[0].data[1]; 
+                const undervaluedLimit = fairValueData * 1.2;
+                const overvaluedLimit = fairValueData * 0.8;
 
                 const undervaluedPixel = x.getPixelForValue(undervaluedLimit);
                 const overvaluedPixel = x.getPixelForValue(overvaluedLimit);
                 
-                ctx.fillStyle = 'rgba(76, 175, 80, 0.15)';
-                ctx.fillRect(left, top, undervaluedPixel - left, height);
-                ctx.fillStyle = 'rgba(255, 193, 7, 0.15)';
-                ctx.fillRect(undervaluedPixel, top, overvaluedPixel - undervaluedPixel, height);
-                ctx.fillStyle = 'rgba(244, 67, 54, 0.15)';
-                ctx.fillRect(overvaluedPixel, top, right - overvaluedPixel, height);
+                // **UPDATED** Changed to solid colors
+                ctx.fillStyle = '#4CAF50'; // Solid Green for undervalued
+                ctx.fillRect(left, top, overvaluedPixel - left, height);
+                ctx.fillStyle = '#FFC107'; // Solid Yellow for fairly valued
+                ctx.fillRect(overvaluedPixel, top, undervaluedPixel - overvaluedPixel, height);
+                ctx.fillStyle = '#F44336'; // Solid Red for overvalued
+                ctx.fillRect(undervaluedPixel, top, right - undervaluedPixel, height);
 
                 ctx.restore();
             }
@@ -185,15 +186,6 @@
                             ctx.font = `bold ${valueFontSize}px Arial`;
                             ctx.fillText('$' + value.toFixed(2), base + 15, textYPosition + labelFontSize + 4);
                             ctx.restore();
-
-                            ctx.save();
-                            ctx.strokeStyle = '#00BFFF';
-                            ctx.lineWidth = 4;
-                            ctx.beginPath();
-                            ctx.moveTo(x, y - height / 2);
-                            ctx.lineTo(x, y + height / 2);
-                            ctx.stroke();
-                            ctx.restore();
                         });
                     }
                 });
@@ -203,10 +195,10 @@
         const valuationChart = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['Fair Value', 'Current Price'],
+                labels: ['Current Price', 'Fair Value'],
                 datasets: [{
-                    data: [fairValue, currentPrice],
-                    backgroundColor: [ 'rgba(0, 0, 0, 0.5)', 'rgba(0, 0, 0, 0.7)'],
+                    data: [currentPrice, fairValue],
+                    backgroundColor: [ 'rgba(0, 0, 0, 0.7)', 'rgba(0, 0, 0, 0.5)'],
                     borderColor: 'transparent',
                     borderWidth: 0,
                     barThickness: function(context) {
@@ -243,10 +235,10 @@
         $container.find('.jtw-valuation-range-container').remove();
         
         let annotationText = '';
-        if (percentageDiff > 10) {
-            annotationText = percentageDiff.toFixed(1) + '% Overvalued';
-        } else if (percentageDiff < -10) {
-            annotationText = Math.abs(percentageDiff).toFixed(1) + '% Undervalued';
+        if (percentageDiff > 20) {
+            annotationText = percentageDiff.toFixed(1) + '% Undervalued';
+        } else if (percentageDiff < -20) {
+            annotationText = Math.abs(percentageDiff).toFixed(1) + '% Overvalued';
         } else {
             annotationText = 'Fairly Valued';
         }
@@ -374,78 +366,68 @@
             charts[chartId] = new Chart(ctx, config);
         });
 
-        // **FIX:** The period toggle now respects the active category filter.
+        function updateAndFilterCharts() {
+            const activePeriod = $container.find('.jtw-period-button.active').data('period');
+            const activeCategory = $container.find('.jtw-category-button.active').data('category');
+
+            $container.find('.jtw-chart-item').hide().promise().done(function() {
+                $chartDataScripts.each(function() {
+                    const $script = $(this);
+                    const $chartItem = $script.closest('.jtw-chart-item');
+                    const chartCategory = $chartItem.data('category');
+                    const chartId = $script.data('chart-id');
+                    const chart = charts[chartId];
+                    if (!chart) return;
+
+                    const shouldBeVisible = (activeCategory === 'all' || chartCategory === activeCategory);
+
+                    if (shouldBeVisible) {
+                        let dataToUse;
+                        try {
+                            dataToUse = JSON.parse($script.attr('data-' + activePeriod));
+                        } catch (e) {
+                            return; 
+                        }
+
+                        if (hasData(dataToUse)) {
+                            chart.data.labels = dataToUse.labels;
+                            if (dataToUse.datasets) {
+                                chart.data.datasets.forEach((dataset, index) => {
+                                    if (dataToUse.datasets[index]) {
+                                        dataset.data = dataToUse.datasets[index].data;
+                                        dataset.label = dataToUse.datasets[index].label;
+                                    }
+                                });
+                            } else {
+                                chart.data.datasets[0].data = dataToUse.data;
+                            }
+                            
+                            $chartItem.show();
+                            chart.update();
+                        }
+                    }
+                });
+            });
+        }
+
         $container.find('.jtw-period-button').on('click', function() {
             const $button = $(this);
             if ($button.hasClass('active')) return;
 
-            const period = $button.data('period');
             $container.find('.jtw-period-button').removeClass('active');
             $button.addClass('active');
             
-            const activeCategory = $container.find('.jtw-category-button.active').data('category');
-
-            $chartDataScripts.each(function() {
-                const $script = $(this);
-                const $chartItem = $script.closest('.jtw-chart-item');
-                const chartId = $script.data('chart-id');
-                const chart = charts[chartId];
-                if (!chart) return;
-                
-                let dataToUse;
-                try {
-                     dataToUse = JSON.parse($script.attr('data-' + period));
-                } catch(e) {
-                     console.error("Failed to parse " + period + " data for chart:", chartId, e);
-                     $chartItem.hide();
-                     return;
-                }
-                
-                const chartCategory = $chartItem.data('category');
-
-                if (hasData(dataToUse) && (activeCategory === 'all' || chartCategory === activeCategory)) {
-                    $chartItem.show();
-                    chart.data.labels = dataToUse.labels;
-
-                    if (dataToUse.datasets) { 
-                        chart.data.datasets.forEach((dataset, index) => {
-                            if(dataToUse.datasets[index]) {
-                                dataset.data = dataToUse.datasets[index].data;
-                                dataset.label = dataToUse.datasets[index].label;
-                            }
-                        });
-                    } else { 
-                        chart.data.datasets[0].data = dataToUse.data;
-                    }
-                    chart.update();
-                } else {
-                    $chartItem.hide();
-                }
-            });
+            updateAndFilterCharts();
         });
 
         $container.find('.jtw-category-button').on('click', function() {
             const $button = $(this);
             if ($button.hasClass('active')) return;
 
-            const selectedCategory = $button.data('category');
             $container.find('.jtw-category-button').removeClass('active');
             $button.addClass('active');
 
-            const $chartsGrid = $container.find('.jtw-historical-charts-grid');
-
-            if (selectedCategory === 'all') {
-                $chartsGrid.find('.jtw-chart-item').show();
-            } else {
-                $chartsGrid.find('.jtw-chart-item').each(function() {
-                    const $chart = $(this);
-                    if ($chart.data('category') === selectedCategory) {
-                        $chart.show();
-                    } else {
-                        $chart.hide();
-                    }
-                });
-            }
+            updateAndFilterCharts();
         });
     }
 

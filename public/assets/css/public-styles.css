@@ -446,7 +446,7 @@
     z-index: 10001;
     display: none;
     width: 90%;
-    max-width: 600px;
+    max-width: 1000px; /* **UPDATED** */
     box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
 .jtw-modal-content h4 {
@@ -528,4 +528,38 @@
     width: 100%;
     flex: 1;
     max-width: 480px;
+}
+
+/* --- **UPDATED** Styles for Data Assumptions Modal --- */
+.jtw-modal-content {
+    max-height: 50vh; /* **UPDATED** Reduced height */
+    overflow-y: auto; 
+}
+.jtw-modal-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 25px;
+    font-size: 0.9em;
+}
+.jtw-modal-table th,
+.jtw-modal-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--jtw-border-color-light);
+}
+.jtw-modal-table thead th {
+    background-color: #f8f9fa; /* Light gray background for headers */
+    font-weight: 600;
+    color: var(--jtw-text-dark);
+}
+.jtw-modal-table td:nth-child(2) {
+    color: var(--jtw-text-medium);
+}
+.jtw-modal-table td:last-child {
+    text-align: right;
+    font-weight: 500;
+}
+.jtw-modal-table strong {
+    font-weight: 600;
+    color: var(--jtw-text-dark);
 }

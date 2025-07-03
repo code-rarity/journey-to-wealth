@@ -1,10 +1,10 @@
 <?php
 /**
  * Excess Returns Valuation Model for Journey to Wealth plugin.
- * Refactored to use data exclusively from Polygon.io.
+ * Aligned with the single-stage per-share model used by Simply Wall St.
  *
  * @link       https://example.com/journey-to-wealth/
- * @since      1.1.0
+ * @since      3.1.0
  *
  * @package    Journey_To_Wealth
  * @subpackage Journey_To_Wealth/includes/analysis/models
@@ -18,125 +18,86 @@ if ( ! defined( 'WPINC' ) ) {
 class Journey_To_Wealth_Excess_Return_Model {
 
     private $cost_of_equity;
-    private $projection_years = 5;
-    private $terminal_growth_rate_excess_returns;
+    private $terminal_growth_rate;
+    private $equity_risk_premium;
+    private $levered_beta;
 
-    const DEFAULT_ERM_COST_OF_EQUITY = 0.10;
-    const DEFAULT_ERM_TERMINAL_GROWTH = 0.01;
-    const DEFAULT_EQUITY_GROWTH_RATE_FALLBACK = 0.03;
-    const MIN_YEARS_FOR_BV_GROWTH = 3;
-    const MAX_YEARS_FOR_BV_GROWTH_CALC = 7;
-    const MAX_HISTORICAL_BV_GROWTH_CAP = 0.15;
-    const MIN_HISTORICAL_BV_GROWTH_FLOOR = 0.00;
-
-    public function __construct($cost_of_equity = null, $terminal_growth_rate = null) {
-        $this->cost_of_equity = is_numeric($cost_of_equity) ? (float) $cost_of_equity : self::DEFAULT_ERM_COST_OF_EQUITY;
-        $this->terminal_growth_rate_excess_returns = is_numeric($terminal_growth_rate) ? (float) $terminal_growth_rate : self::DEFAULT_ERM_TERMINAL_GROWTH;
+    public function __construct($equity_risk_premium, $levered_beta) {
+        $this->equity_risk_premium = $equity_risk_premium;
+        $this->levered_beta = $levered_beta;
     }
 
-    private function get_polygon_value($statement_section, $key) {
-        if (isset($statement_section[$key]['value']) && is_numeric($statement_section[$key]['value'])) {
-            return (float)$statement_section[$key]['value'];
+    private function get_av_value($report, $key, $default = 0) {
+        if (isset($report[$key]) && is_numeric($report[$key]) && $report[$key] !== 'None') {
+            return (float)$report[$key];
         }
         return null;
     }
 
-    private function calculate_historical_book_value_growth($financials_annual, &$log_messages) {
-        if (count($financials_annual) < self::MIN_YEARS_FOR_BV_GROWTH) return null;
-        
-        $book_values = [];
-        $sorted_financials = array_reverse($financials_annual);
-
-        foreach ($sorted_financials as $report) {
-            $bv = $this->get_polygon_value($report['financials']['balance_sheet'] ?? [], 'equity');
-            if ($bv !== null && $bv > 0) {
-                $book_values[] = $bv;
-            }
-        }
-        
-        if (count($book_values) < 2) return null;
-
-        $growth_rates = [];
-        for ($i = 1; $i < count($book_values); $i++) {
-            if ($book_values[$i-1] > 0) { 
-                $growth = ($book_values[$i] - $book_values[$i-1]) / $book_values[$i-1];
-                $growth_rates[] = $growth;
-            }
-        }
-
-        if (empty($growth_rates)) return null;
-
-        $average_growth = array_sum($growth_rates) / count($growth_rates);
-        return max(self::MIN_HISTORICAL_BV_GROWTH_FLOOR, min($average_growth, self::MAX_HISTORICAL_BV_GROWTH_CAP));
-    }
-
-    public function calculate($financials_annual, $details, $prev_close_data) {
-        $log_messages = [];
-
-        if (is_wp_error($financials_annual) || empty($financials_annual)) {
+    public function calculate($overview, $income_statement, $balance_sheet, $treasury_yield, $latest_price, $beta_details) {
+        if (is_wp_error($balance_sheet) || empty($balance_sheet['annualReports']) || is_wp_error($income_statement) || empty($income_statement['annualReports'])) {
             return new WP_Error('erm_missing_financials', __('ERM Error: Financial statements missing.', 'journey-to-wealth'));
         }
         
-        $latest_report = $financials_annual[0];
-        $latest_bs = $latest_report['financials']['balance_sheet'] ?? [];
-        $latest_is = $latest_report['financials']['income_statement'] ?? [];
+        $shares_outstanding = $this->get_av_value($overview, 'SharesOutstanding');
+        if (empty($shares_outstanding)) {
+            return new WP_Error('erm_missing_shares', __('ERM Error: Shares outstanding missing.', 'journey-to-wealth'));
+        }
 
-        $current_book_value_equity = $this->get_polygon_value($latest_bs, 'equity');
-        $net_income = $this->get_polygon_value($latest_is, 'net_income_loss');
+        $risk_free_rate = (new Journey_To_Wealth_DCF_Model())->calculate_average_risk_free_rate($treasury_yield);
+        $this->cost_of_equity = $risk_free_rate + ($this->levered_beta * $this->equity_risk_premium);
+        $this->terminal_growth_rate = $risk_free_rate;
+
+        $latest_bs_report = $balance_sheet['annualReports'][0];
+        $latest_is_report = $income_statement['annualReports'][0];
+
+        $current_book_value_equity = $this->get_av_value($latest_bs_report, 'totalShareholderEquity');
+        $net_income = $this->get_av_value($latest_is_report, 'netIncome');
 
         if ($current_book_value_equity === null || $net_income === null || $current_book_value_equity <= 0) {
              return new WP_Error('erm_missing_b0_or_ni', __('ERM Error: Current Book Value or Net Income is missing or invalid.', 'journey-to-wealth'));
         }
         $roe = $net_income / $current_book_value_equity;
-        $log_messages[] = sprintf(__('ERM: Calculated ROE is %.2f%%.', 'journey-to-wealth'), $roe * 100);
-
-        $g_equity = $this->calculate_historical_book_value_growth($financials_annual, $log_messages);
-        if ($g_equity === null) {
-            $g_equity = self::DEFAULT_EQUITY_GROWTH_RATE_FALLBACK;
-            $log_messages[] = sprintf(__('ERM: Using fallback equity growth rate: %.2f%%', 'journey-to-wealth'), $g_equity * 100);
-        }
-
-        $sum_pv_excess_returns = 0;
-        $projected_book_value_current_year = $current_book_value_equity; 
-        for ($i = 1; $i <= $this->projection_years; $i++) {
-            $excess_return_amount = ($roe - $this->cost_of_equity) * $projected_book_value_current_year;
-            $sum_pv_excess_returns += $excess_return_amount / pow((1 + $this->cost_of_equity), $i);
-            $projected_book_value_current_year *= (1 + $g_equity); 
-        }
-
-        $book_value_at_terminal_year_start = $projected_book_value_current_year;
-        $terminal_year_excess_return = ($roe - $this->cost_of_equity) * $book_value_at_terminal_year_start;
-        $terminal_value_er = ($terminal_year_excess_return * (1 + $this->terminal_growth_rate_excess_returns)) / ($this->cost_of_equity - $this->terminal_growth_rate_excess_returns);
-        $pv_terminal_value_excess_returns = $terminal_value_er / pow((1 + $this->cost_of_equity), $this->projection_years);
-
-        $total_equity_value = $current_book_value_equity + $sum_pv_excess_returns + $pv_terminal_value_excess_returns;
         
-        $shares_outstanding = $details['share_class_shares_outstanding'] ?? null;
-        if (empty($shares_outstanding)) {
-            return new WP_Error('erm_missing_shares', __('ERM Error: Shares outstanding missing.', 'journey-to-wealth'));
+        if ($this->cost_of_equity <= $this->terminal_growth_rate) {
+            $this->terminal_growth_rate = $this->cost_of_equity - 0.0025; // Ensure Cost of Equity is greater than growth
         }
+
+        // --- Per-Share Calculations ---
+        $book_value_per_share = $current_book_value_equity / $shares_outstanding;
         
-        $intrinsic_value_per_share = $total_equity_value / $shares_outstanding;
-        $current_market_price = $prev_close_data['c'] ?? null;
-        $interpretation = $this->get_interpretation($intrinsic_value_per_share, $current_market_price);
+        // Step 1: Calculate Excess Returns per share
+        $excess_return_per_share = ($roe - $this->cost_of_equity) * $book_value_per_share;
+
+        // Step 2: Calculate Terminal Value of Excess Returns per share
+        $terminal_value_of_excess_returns_per_share = $excess_return_per_share / ($this->cost_of_equity - $this->terminal_growth_rate);
+
+        // Step 3: Calculate the final Intrinsic Value per share
+        $intrinsic_value_per_share = $book_value_per_share + $terminal_value_of_excess_returns_per_share;
 
         return [
             'intrinsic_value_per_share' => round($intrinsic_value_per_share, 2),
-            'interpretation' => $interpretation,
-            'log_messages' => $log_messages
+            'calculation_breakdown' => [
+                'model_name' => 'Excess Return Model',
+                'roe' => $roe,
+                'cost_of_equity' => $this->cost_of_equity,
+                'terminal_growth_rate' => $this->terminal_growth_rate,
+                'current_book_value_per_share' => $book_value_per_share,
+                'excess_return_per_share' => $excess_return_per_share,
+                'terminal_value_of_excess_returns_per_share' => $terminal_value_of_excess_returns_per_share,
+                'intrinsic_value_per_share' => $intrinsic_value_per_share,
+                'current_price' => $latest_price,
+                'discount_rate_calc' => [
+                    'risk_free_rate' => $risk_free_rate,
+                    'risk_free_rate_source' => '5-Year Average of US Long-Term Govt Bond Rate',
+                    'equity_risk_premium' => $this->equity_risk_premium,
+                    'erp_source' => 'Plugin Setting',
+                    'beta' => $this->levered_beta,
+                    'beta_source' => $beta_details['beta_source'],
+                    'beta_details' => $beta_details,
+                    'cost_of_equity_calc' => 'Risk-Free Rate + (Levered Beta * Equity Risk Premium)',
+                ],
+            ]
         ];
-    }
-
-    public function get_interpretation( $intrinsic_value, $current_market_price ) {
-        if (!is_numeric($intrinsic_value) || !is_numeric($current_market_price) || $current_market_price == 0) {
-            return __('Cannot provide full ERM interpretation.', 'journey-to-wealth');
-        }
-        $diff_pct = (($intrinsic_value - $current_market_price) / $current_market_price) * 100;
-        $status_text = '';
-        if ($intrinsic_value < 0) { $status_text = __('suggests a negative intrinsic value.', 'journey-to-wealth');
-        } elseif ($diff_pct > 20) { $status_text = sprintf(__('suggests potential undervaluation by %.1f%%.', 'journey-to-wealth'), $diff_pct);
-        } elseif ($diff_pct < -20) { $status_text = sprintf(__('suggests potential overvaluation by %.1f%%.', 'journey-to-wealth'), abs($diff_pct));
-        } else { $status_text = sprintf(__('suggests relative fair valuation (difference of %.1f%%).', 'journey-to-wealth'), $diff_pct); }
-        return sprintf(__('Excess Returns Model Fair Value Estimate: $%.2f. Current Price: $%.2f. This %s', 'journey-to-wealth'), $intrinsic_value, $current_market_price, $status_text);
     }
 }

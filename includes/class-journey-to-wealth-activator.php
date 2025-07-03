@@ -11,42 +11,70 @@
  * @package    Journey_To_Wealth
  * @subpackage Journey_To_Wealth/includes
  */
-
-/**
- * Fired during plugin activation.
- *
- * This class defines all code necessary to run during the plugin's activation.
- *
- * @since      1.0.0
- * @package    Journey_To_Wealth
- * @subpackage Journey_To_Wealth/includes
- * @author     Your Name or Company <email@example.com>
- */
 class Journey_To_Wealth_Activator {
 
     /**
-     * Short Description. (use period)
-     *
-     * Long Description.
+     * Runs activation tasks.
      *
      * @since    1.0.0
      */
     public static function activate() {
-        // Example: Add a version option to the database.
-        // This is useful for tracking plugin version for future updates or migrations.
+        // Add a version option to the database.
         if ( false === get_option( 'journey_to_wealth_version' ) ) {
-            add_option( 'journey_to_wealth_version', JOURNEY_TO_WEALTH_VERSION );
+            add_option( 'journey_to_wealth_version', '3.3.0' ); // Use a static version or constant
         } else {
-            update_option( 'journey_to_wealth_version', JOURNEY_TO_WEALTH_VERSION );
+            update_option( 'journey_to_wealth_version', '3.3.0' );
         }
 
-        // Example: Flush rewrite rules if you were registering custom post types or taxonomies.
-        // Not strictly necessary for this plugin's initial scope, but good to know.
-        // flush_rewrite_rules();
+        // Create the custom database tables.
+        self::create_beta_table();
+        self::create_company_mapping_table();
+    }
 
-        // You can add other setup tasks here, like:
-        // - Creating custom database tables (if absolutely necessary and not using options/CPTs)
-        // - Setting default options
+	/**
+	 * Create the custom table for industry betas.
+	 *
+	 * @since    2.3.0
+	 */
+	private static function create_beta_table() {
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'jtw_industry_betas';
+		$charset_collate = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE $table_name (
+			id mediumint(9) NOT NULL AUTO_INCREMENT,
+			industry_name varchar(255) NOT NULL,
+			unlevered_beta float NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY industry_name (industry_name(191))
+		) $charset_collate;";
+
+		require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+		dbDelta( $sql );
+	}
+
+    /**
+     * Create the custom table for company-to-industry mappings.
+     *
+     * @since    3.3.0
+     */
+    private static function create_company_mapping_table() {
+        global $wpdb;
+        // **FIX**: Corrected table name to match the rest of the plugin.
+        $table_name = $wpdb->prefix . 'jtw_company_mappings';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        // **FIX**: Corrected schema to use 'ticker' and a proper unique key.
+        $sql = "CREATE TABLE $table_name (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            ticker varchar(20) NOT NULL,
+            damodaran_industry_id mediumint(9) NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY ticker_damodaran_pair (ticker, damodaran_industry_id)
+        ) $charset_collate;";
+
+        require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+        dbDelta( $sql );
     }
 
 }

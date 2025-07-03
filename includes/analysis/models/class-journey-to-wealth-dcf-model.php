@@ -1,17 +1,15 @@
 <?php
 /**
  * Discounted Cash Flow (DCF) Valuation Model for Journey to Wealth plugin.
- * Implements a 2-stage FCFE model using data exclusively from Polygon.io.
- * Refactored to align with a more standard FCF calculation methodology.
+ * Implements a 2-stage FCFE model using data from Alpha Vantage.
  *
  * @link       https://example.com/journey-to-wealth/
- * @since      1.2.0
+ * @since      2.2.5
  *
  * @package    Journey_To_Wealth
  * @subpackage Journey_To_Wealth/includes/analysis/models
  */
 
-// Prevent direct access to this file.
 if ( ! defined( 'WPINC' ) ) {
     die;
 }
@@ -20,68 +18,78 @@ class Journey_To_Wealth_DCF_Model {
 
     private $cost_of_equity;
     private $terminal_growth_rate;
+    private $equity_risk_premium;
+    private $levered_beta;
     private $projection_years = 10;
 
-    // --- Defaults & Constants ---
-    const DEFAULT_COST_OF_EQUITY = 0.095; // 9.5% as a fixed default
-    const DEFAULT_TERMINAL_GROWTH_RATE = 0.025; // 2.5%
+    const DEFAULT_COST_OF_EQUITY = 0.085;
+    const DEFAULT_RISK_FREE_RATE = 0.045;
     
     const MAX_YEARS_FOR_HISTORICAL_CALCS = 7;
     const MIN_YEARS_FOR_GROWTH_CALC = 3;
     
-    const DEFAULT_HISTORICAL_GROWTH_CAP = 0.15; // 15%
-    const DEFAULT_HISTORICAL_GROWTH_FLOOR = 0.02; // 2%
+    const DEFAULT_HISTORICAL_GROWTH_CAP = 0.15;
+    const DEFAULT_HISTORICAL_GROWTH_FLOOR = 0.02;
+    const ANALYST_GROWTH_CAP = 0.35;
+    const HEAVY_REINVESTMENT_THRESHOLD = 0.60;
 
-    public function __construct() {
-        $this->cost_of_equity = self::DEFAULT_COST_OF_EQUITY;
-        $this->terminal_growth_rate = self::DEFAULT_TERMINAL_GROWTH_RATE;
+    public function __construct($equity_risk_premium = null, $levered_beta = null) {
+        $this->equity_risk_premium = is_numeric($equity_risk_premium) ? $equity_risk_premium : 0.055;
+        $this->levered_beta = is_numeric($levered_beta) ? $levered_beta : null;
     }
 
-    private function get_polygon_value($statement_section, $key, $default = 0, &$log_messages = [], $context = '') {
-        if (isset($statement_section[$key]['value']) && is_numeric($statement_section[$key]['value'])) {
-            return (float)$statement_section[$key]['value'];
+    private function get_av_value($report, $key, $default = 0) {
+        if (isset($report[$key]) && is_numeric($report[$key]) && $report[$key] !== 'None') {
+            return (float)$report[$key];
         }
-        $log_messages[] = sprintf(__('DCF Warning: Numeric value for "%s" in %s missing or invalid. Using default: %s.', 'journey-to-wealth'), $key, $context, $default);
         return $default;
     }
 
-    private function calculate_single_fcfe($financial_report, &$log_messages) {
-        $cash_flow_statement = $financial_report['financials']['cash_flow_statement'] ?? [];
-        $fiscal_year = $financial_report['fiscal_year'] ?? 'N/A';
-
-        $cash_from_ops = $this->get_polygon_value($cash_flow_statement, 'net_cash_flow_from_operating_activities', null, $log_messages, "Cash from Operations for $fiscal_year");
-        $cash_from_inv = $this->get_polygon_value($cash_flow_statement, 'net_cash_flow_from_investing_activities', null, $log_messages, "Cash from Investing for $fiscal_year");
-
-        if ($cash_from_ops === null || $cash_from_inv === null) {
-            $log_messages[] = "DCF Error: Could not calculate FCF for $fiscal_year due to missing cash flow data.";
-            return null;
+    public function calculate_average_risk_free_rate($treasury_yield_data) {
+        if (is_wp_error($treasury_yield_data) || empty($treasury_yield_data['data'])) {
+            return self::DEFAULT_RISK_FREE_RATE;
         }
-
-        $fcfe = $cash_from_ops + $cash_from_inv;
-        
-        return $fcfe;
+        $yields = array_slice($treasury_yield_data['data'], 0, 60);
+        $sum = 0;
+        $count = 0;
+        foreach ($yields as $yield_entry) {
+            if (isset($yield_entry['value']) && is_numeric($yield_entry['value'])) {
+                $sum += (float)$yield_entry['value'];
+                $count++;
+            }
+        }
+        if ($count > 0) {
+            return ($sum / $count) / 100;
+        }
+        return self::DEFAULT_RISK_FREE_RATE;
     }
 
-    private function calculate_historical_fcfe_growth($financials_annual, &$log_messages) {
-        if (count($financials_annual) < self::MIN_YEARS_FOR_GROWTH_CALC) {
-            $log_messages[] = __('DCF: Insufficient historical statements for FCFE growth. Using default floor growth.', 'journey-to-wealth');
-            return self::DEFAULT_HISTORICAL_GROWTH_FLOOR;
+    private function calculate_cost_of_equity($beta, $risk_free_rate) {
+        if ($beta > 0) {
+            return $risk_free_rate + ($beta * $this->equity_risk_premium);
         }
+        return self::DEFAULT_COST_OF_EQUITY;
+    }
 
-        $fcfes = [];
-        $sorted_financials = array_reverse($financials_annual);
+    private function calculate_single_fcfe($cash_flow_report) {
+        $cash_from_ops = $this->get_av_value($cash_flow_report, 'operatingCashflow');
+        $capex = $this->get_av_value($cash_flow_report, 'capitalExpenditures');
+        return $cash_from_ops - abs($capex);
+    }
+
+    private function calculate_historical_fcfe_growth($cash_flow_reports) {
+        if (count($cash_flow_reports) < self::MIN_YEARS_FOR_GROWTH_CALC) return null;
         
-        foreach ($sorted_financials as $report) {
-            $fcfe = $this->calculate_single_fcfe($report, $log_messages);
-            if ($fcfe !== null && $fcfe > 0) {
+        $fcfes = [];
+        $sorted_reports = array_reverse($cash_flow_reports); 
+        foreach ($sorted_reports as $report) {
+            $fcfe = $this->calculate_single_fcfe($report);
+            if ($fcfe > 0) {
                 $fcfes[] = $fcfe;
             }
         }
-        
-        if (count($fcfes) < 2) {
-            $log_messages[] = __('DCF: Not enough positive FCFE data for growth. Using default floor growth.', 'journey-to-wealth');
-            return self::DEFAULT_HISTORICAL_GROWTH_FLOOR;
-        }
+
+        if (count($fcfes) < 2) return null;
 
         $growth_rates = [];
         for ($i = 1; $i < count($fcfes); $i++) {
@@ -91,137 +99,130 @@ class Journey_To_Wealth_DCF_Model {
             }
         }
 
-        if (empty($growth_rates)) {
-            $log_messages[] = __('DCF: No valid growth rates calculated. Using default floor value.', 'journey-to-wealth');
-            return self::DEFAULT_HISTORICAL_GROWTH_FLOOR;
-        }
+        if (empty($growth_rates)) return null;
 
         $average_growth = array_sum($growth_rates) / count($growth_rates);
-        $calculated_g = max(self::DEFAULT_HISTORICAL_GROWTH_FLOOR, min($average_growth, self::DEFAULT_HISTORICAL_GROWTH_CAP));
-        $log_messages[] = sprintf(__('DCF: Historical FCFE growth (%.1f%%) capped/floored to %.1f%%.', 'journey-to-wealth'), $average_growth * 100, $calculated_g * 100);
-        return (float) $calculated_g;
+        return max(self::DEFAULT_HISTORICAL_GROWTH_FLOOR, min($average_growth, self::DEFAULT_HISTORICAL_GROWTH_CAP));
     }
 
-    /**
-     * **NEW:** Helper function to parse growth rate from Benzinga news articles.
-     * This is a simplified parser. A real-world implementation would be more complex.
-     * It looks for analyst price targets and implies a growth rate from them.
-     */
-    private function parse_analyst_growth_rate($analyst_ratings, &$log_messages) {
-        if (empty($analyst_ratings) || !is_array($analyst_ratings)) {
-            return null;
+    private function get_stage1_growth_rate($overview_data, $income_statement_data, $cash_flow_reports) {
+        $forward_pe = $this->get_av_value($overview_data, 'ForwardPE');
+        $target_price = $this->get_av_value($overview_data, 'AnalystTargetPrice');
+        $last_annual_eps = isset($income_statement_data['annualReports'][1]) ? $this->get_av_value($income_statement_data['annualReports'][1], 'reportedEPS') : null;
+
+        if ($forward_pe > 0 && $target_price > 0 && $last_annual_eps > 0) {
+            $forward_eps = $target_price / $forward_pe;
+            $analyst_growth = ($forward_eps - $last_annual_eps) / $last_annual_eps;
+            if ($analyst_growth > 0) return min($analyst_growth, self::ANALYST_GROWTH_CAP);
         }
-    
-        $price_targets = [];
-        // Regex to find price targets in article titles or descriptions.
-        $pattern = '/(price target)\s*(of|to)\s*\$?(\d+(\.\d{1,2})?)/i';
-    
-        foreach($analyst_ratings as $article) {
-            $text_to_search = ($article['title'] ?? '') . ' ' . ($article['description'] ?? '');
-            if (preg_match($pattern, $text_to_search, $matches)) {
-                $price_targets[] = (float)$matches[3];
-            }
-        }
-    
-        if (count($price_targets) < 3) { // Require at least 3 ratings for a meaningful average
-            $log_messages[] = "DCF Note: Found fewer than 3 analyst price targets from Benzinga. Insufficient for consensus.";
-            return null;
-        }
-    
-        // Using a simple average of price targets. A more complex model might use earnings estimates.
-        $average_price_target = array_sum($price_targets) / count($price_targets);
-        $log_messages[] = sprintf('DCF Note: Found %d analyst price targets with an average of $%.2f.', count($price_targets), $average_price_target);
         
-        // This is a simplified proxy for growth. A real implementation would use EPS/revenue growth estimates.
-        // For now, we will return a default analyst-based growth rate if targets are found.
-        $analyst_growth = 0.08; // Placeholder for a parsed growth rate
-        $log_messages[] = "DCF Note: Using placeholder analyst growth rate based on price targets. This needs to be refined based on actual API data for EPS/Revenue growth.";
-        
-        return $analyst_growth;
+        $peg_ratio = $this->get_av_value($overview_data, 'PEGRatio');
+        $pe_ratio = $this->get_av_value($overview_data, 'PERatio');
+        if ($peg_ratio > 0 && $pe_ratio > 0) {
+            $analyst_growth = ($pe_ratio / $peg_ratio) / 100;
+            if ($analyst_growth > 0) return min($analyst_growth, self::ANALYST_GROWTH_CAP);
+        }
+
+        $historical_growth = $this->calculate_historical_fcfe_growth($cash_flow_reports);
+        if ($historical_growth !== null) return $historical_growth;
+
+        return self::DEFAULT_HISTORICAL_GROWTH_FLOOR;
     }
 
-    public function calculate($financials_annual, $details, $prev_close_data, $analyst_ratings = []) {
-        $log_messages = [];
-        $log_messages[] = "DCF Note: Using Polygon.io data. Beta and Treasury Yield are unavailable, so a default Cost of Equity is used.";
-        $log_messages[] = sprintf(__('DCF: Using default Cost of Equity: %.1f%%.', 'journey-to-wealth'), $this->cost_of_equity * 100);
-        $log_messages[] = sprintf(__('DCF: Using default Terminal Growth Rate: %.1f%%.', 'journey-to-wealth'), $this->terminal_growth_rate * 100);
-
-        if (is_wp_error($financials_annual) || empty($financials_annual)) {
-            return new WP_Error('dcf_missing_financials', __('DCF Error: Annual financial statements are required.', 'journey-to-wealth'));
+    public function calculate($overview_data, $income_statement_data, $balance_sheet_data, $cash_flow_data, $treasury_yield_data, $current_price, $beta_details = []) {
+        if (is_wp_error($cash_flow_data) || empty($cash_flow_data['annualReports']) || is_wp_error($income_statement_data) || empty($income_statement_data['annualReports'])) {
+            return new WP_Error('dcf_missing_financials', __('DCF Error: Annual cash flow or income statements are required.', 'journey-to-wealth'));
         }
 
-        // **NEW:** Logic to use analyst growth rates if available
-        $analyst_growth_rate = $this->parse_analyst_growth_rate($analyst_ratings, $log_messages);
+        $risk_free_rate = $this->calculate_average_risk_free_rate($treasury_yield_data);
+        
+        $beta = $this->levered_beta ?? $beta_details['levered_beta'] ?? $this->get_av_value($overview_data, 'Beta');
+        $beta_source = $beta_details['beta_source'] ?? 'Alpha Vantage';
 
-        if ($analyst_growth_rate !== null) {
-            $initial_growth_rate = $analyst_growth_rate;
-            $log_messages[] = sprintf(__('DCF Note: Using Benzinga analyst consensus growth rate: %.1f%%.', 'journey-to-wealth'), $initial_growth_rate * 100);
-        } else {
-            $log_messages[] = __('DCF Note: Benzinga analyst data not available or parsable. Falling back to historical FCFE growth.', 'journey-to-wealth');
-            $initial_growth_rate = $this->calculate_historical_fcfe_growth($financials_annual, $log_messages);
+        if ($beta === 1.0 && $beta_source === 'Default') {
+            $beta = $this->get_av_value($overview_data, 'Beta');
+            $beta_source = 'Alpha Vantage (Fallback)';
         }
 
-        $base_fcfe = $this->calculate_single_fcfe($financials_annual[0], $log_messages);
-        if ($base_fcfe === null) {
-            return new WP_Error('dcf_base_fcfe_error', __('DCF Error: Could not calculate base FCFE from latest annual report.', 'journey-to-wealth'));
+        $this->cost_of_equity = $this->calculate_cost_of_equity($beta, $risk_free_rate);
+        $this->terminal_growth_rate = $risk_free_rate;
+
+        if ($this->cost_of_equity <= $this->terminal_growth_rate) {
+            $this->terminal_growth_rate = $this->cost_of_equity - 0.0025;
         }
-         if ($base_fcfe <= 0) {
-            $log_messages[] = sprintf(__('DCF Warning: Base FCFE is $%.2f. Projections are highly speculative.', 'journey-to-wealth'), $base_fcfe);
+
+        $cash_flow_reports = array_slice($cash_flow_data['annualReports'], 0, self::MAX_YEARS_FOR_HISTORICAL_CALCS);
+        $initial_growth_rate = $this->get_stage1_growth_rate($overview_data, $income_statement_data, $cash_flow_reports);
+        
+        $latest_cash_flow_report = $cash_flow_reports[0];
+        $operating_cash_flow = $this->get_av_value($latest_cash_flow_report, 'operatingCashflow');
+        $capex = $this->get_av_value($latest_cash_flow_report, 'capitalExpenditures');
+        $base_fcfe = $operating_cash_flow - abs($capex);
+
+        if ($operating_cash_flow > 0 && (abs($capex) / $operating_cash_flow) >= self::HEAVY_REINVESTMENT_THRESHOLD) {
+            $base_fcfe = $this->get_av_value($income_statement_data['annualReports'][0], 'netIncome');
         }
         
-        $projected_fcfs = [];
-        $current_fcfe = $base_fcfe;
-        $growth_reduction_per_year = ($initial_growth_rate > $this->terminal_growth_rate) ? ($initial_growth_rate - $this->terminal_growth_rate) / $this->projection_years : 0;
-
-        for ($i = 1; $i <= $this->projection_years; $i++) {
-            $current_growth_rate = max($this->terminal_growth_rate, $initial_growth_rate - ($growth_reduction_per_year * ($i - 1)));
-            $current_fcfe *= (1 + $current_growth_rate);
-            $projected_fcfs[] = $current_fcfe;
-        }
-
-        $sum_discounted_fcfs = 0;
-        for ($i = 0; $i < $this->projection_years; $i++) {
-            $sum_discounted_fcfs += $projected_fcfs[$i] / pow((1 + $this->cost_of_equity), $i + 1);
-        }
-
-        $fcfe_year_n = end($projected_fcfs);
-        $terminal_value = ($fcfe_year_n * (1 + $this->terminal_growth_rate)) / ($this->cost_of_equity - $this->terminal_growth_rate);
-        $discounted_terminal_value = $terminal_value / pow((1 + $this->cost_of_equity), $this->projection_years);
-
-        $total_equity_value = $sum_discounted_fcfs + $discounted_terminal_value;
+        if ($base_fcfe <= 0) return new WP_Error('dcf_negative_inputs', __('Normalized cash flow is negative.', 'journey-to-wealth'));
         
-        $shares_outstanding = $details['share_class_shares_outstanding'] ?? $details['weighted_shares_outstanding'] ?? null;
+        $projection_table = [];
+        $sum_of_pv_fcfs = 0;
+        $future_fcfe = $base_fcfe;
+
+        for ($year = 1; $year <= $this->projection_years; $year++) {
+            $decay_factor = ($year - 1) / ($this->projection_years - 1);
+            $current_growth_rate = $initial_growth_rate * (1 - $decay_factor) + $this->terminal_growth_rate * $decay_factor;
+            $future_fcfe *= (1 + $current_growth_rate);
+            $discount_factor = pow((1 + $this->cost_of_equity), $year);
+            $pv_of_fcfe = $future_fcfe / $discount_factor;
+            $sum_of_pv_fcfs += $pv_of_fcfe;
+
+            $projection_table[] = [
+                'year' => date('Y') + $year,
+                'fcfe' => $future_fcfe,
+                'pv_fcfe' => $pv_of_fcfe
+            ];
+        }
+
+        $terminal_year_fcfe = $future_fcfe;
+        $terminal_value = ($terminal_year_fcfe * (1 + $this->terminal_growth_rate)) / ($this->cost_of_equity - $this->terminal_growth_rate);
+        $pv_of_terminal_value = $terminal_value / pow((1 + $this->cost_of_equity), $this->projection_years);
+        $total_equity_value = $sum_of_pv_fcfs + $pv_of_terminal_value;
+        
+        $shares_outstanding = $this->get_av_value($overview_data, 'SharesOutstanding');
         if (empty($shares_outstanding)) {
-             return new WP_Error('dcf_missing_shares', __('DCF Error: Shares outstanding data not found.', 'journey-to-wealth'));
+            return new WP_Error('dcf_missing_shares', __('DCF Error: Shares outstanding data not found.', 'journey-to-wealth'));
         }
         
         $intrinsic_value_per_share = $total_equity_value / $shares_outstanding;
-        $current_market_price = $prev_close_data['c'] ?? null;
         
-        $interpretation = $this->get_interpretation($intrinsic_value_per_share, $current_market_price);
-
         return [
             'intrinsic_value_per_share' => round($intrinsic_value_per_share, 2),
-            'interpretation' => $interpretation,
-            'log_messages' => $log_messages
+            'calculation_breakdown' => [
+                'model_name' => 'DCF Model',
+                'inputs' => [
+                    'cost_of_equity' => $this->cost_of_equity,
+                    'terminal_growth_rate' => $this->terminal_growth_rate,
+                    'initial_growth_rate' => $initial_growth_rate,
+                ],
+                'discount_rate_calc' => [
+                    'risk_free_rate' => $risk_free_rate,
+                    'risk_free_rate_source' => '5Y Average of 10Y Treasury',
+                    'equity_risk_premium' => $this->equity_risk_premium,
+                    'erp_source' => 'Plugin Setting',
+                    'beta' => $beta,
+                    'beta_source' => $beta_source,
+                    'beta_details' => $beta_details,
+                    'cost_of_equity_calc' => 'Risk-Free Rate + (Levered Beta * Equity Risk Premium)',
+                ],
+                'projection_table' => $projection_table,
+                'sum_of_pv_fcfs' => $sum_of_pv_fcfs,
+                'terminal_value' => $terminal_value,
+                'pv_of_terminal_value' => $pv_of_terminal_value,
+                'total_equity_value' => $total_equity_value,
+                'shares_outstanding' => $shares_outstanding,
+                'current_price' => $current_price,
+            ]
         ];
-    }
-    
-    public function get_interpretation($intrinsic_value, $current_market_price) {
-        if (!is_numeric($intrinsic_value) || !is_numeric($current_market_price) || $current_market_price == 0) {
-            return __('Cannot provide full DCF interpretation due to missing price data.', 'journey-to-wealth');
-        }
-        $diff_pct = (($intrinsic_value - $current_market_price) / $current_market_price) * 100;
-        $status_text = '';
-        if ($intrinsic_value < 0) {
-            $status_text = __('suggests a negative equity value.', 'journey-to-wealth');
-        } elseif ($diff_pct > 20) {
-            $status_text = sprintf(__('suggests potential undervaluation by %.1f%%.', 'journey-to-wealth'), $diff_pct);
-        } elseif ($diff_pct < -20) {
-            $status_text = sprintf(__('suggests potential overvaluation by %.1f%%.', 'journey-to-wealth'), abs($diff_pct));
-        } else {
-            $status_text = sprintf(__('suggests relative fair valuation (Difference: %.1f%%).', 'journey-to-wealth'), $diff_pct);
-        }
-        return sprintf(__('DCF Fair Value Estimate: $%.2f. Current Price: $%.2f. This %s', 'journey-to-wealth'), $intrinsic_value, $current_market_price, $status_text);
     }
 }
