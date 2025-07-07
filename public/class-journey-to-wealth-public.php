@@ -212,7 +212,12 @@ class Journey_To_Wealth_Public {
             $daily_data = $av_client->get_daily_adjusted($ticker);
             $treasury_yield = $av_client->get_treasury_yield();
 
-            $original_currency = $income_statement['reportedCurrency'] ?? 'USD';
+            // **FIX**: Correctly get currency from the first annual report
+            $original_currency = 'USD';
+            if (isset($income_statement['annualReports'][0]['reportedCurrency'])) {
+                $original_currency = $income_statement['annualReports'][0]['reportedCurrency'];
+            }
+
             $exchange_rate = 1.0;
             $currency_notice = '';
 
@@ -550,7 +555,7 @@ class Journey_To_Wealth_Public {
         if (empty($keywords_to_map)) return;
 
         $where_clauses = [];
-        foreach ($keywords_to_map as $keyword) {
+        foreach ($keywords as $keyword) {
             $where_clauses[] = $wpdb->prepare("industry_name LIKE %s", '%' . $wpdb->esc_like($keyword) . '%');
         }
         $damodaran_ids_to_map = $wpdb->get_col("SELECT id FROM $beta_table WHERE " . implode(' OR ', $where_clauses) . " LIMIT 2");
@@ -677,9 +682,16 @@ class Journey_To_Wealth_Public {
         }
         $unique_dates = array_unique($all_dates); sort($unique_dates);
         $limit = ($type === 'annual') ? -10 : -10; $limited_dates = array_slice($unique_dates, $limit); 
+        
         $final_labels = [];
-        foreach($limited_dates as $date) { $final_labels[] = ($type === 'annual') ? substr($date, 0, 4) : $date; }
-        return $final_labels;
+        if ($type === 'annual') {
+            foreach ($limited_dates as $date) {
+                $final_labels[] = substr($date, 0, 4);
+            }
+            return array_values(array_unique($final_labels));
+        } else {
+            return $limited_dates;
+        }
     }
 
     private function extract_av_financial_data($reports, $key, $type, $master_labels) {

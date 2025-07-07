@@ -208,4 +208,29 @@ class Alpha_Vantage_Client {
         
         return $data;
     }
+
+    /**
+     * **NEW**: Fetches the currency exchange rate between two currencies.
+     *
+     * @since 3.4.0
+     * @param string $from_currency The currency to convert from (e.g., 'EUR').
+     * @param string $to_currency   The currency to convert to (e.g., 'USD').
+     * @return array|WP_Error The API response or a WP_Error object.
+     */
+    public function get_currency_exchange_rate( $from_currency, $to_currency ) {
+        if ( empty( $this->api_key ) ) {
+            return new WP_Error( 'api_key_missing', __( 'API Key not configured.', 'journey-to-wealth' ) );
+        }
+        
+        $params = [
+            'function'      => 'CURRENCY_EXCHANGE_RATE',
+            'from_currency' => $from_currency,
+            'to_currency'   => $to_currency,
+            'apikey'        => $this->api_key
+        ];
+        $transient_key = 'jtw_exchange_rate_' . $from_currency . '_' . $to_currency;
+
+        // Use a shorter expiration for exchange rates as they change frequently.
+        return $this->do_request( $params, $transient_key, $this->cache_expiration_short );
+    }
 }
