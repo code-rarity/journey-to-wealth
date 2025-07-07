@@ -12,6 +12,13 @@ class Journey_To_Wealth_Public {
         $this->plugin_name = $plugin_name;
         $this->version = $version;
         $this->load_dependencies();
+
+        // Register the modular AJAX endpoint
+        add_action('wp_ajax_jtw_fetch_section_data', array($this, 'ajax_fetch_section_data'));
+        add_action('wp_ajax_nopriv_jtw_fetch_section_data', array($this, 'ajax_fetch_section_data'));
+
+        // Register the symbol search endpoint
+        add_action('wp_ajax_jtw_symbol_search', array($this, 'ajax_symbol_search'));
     }
 
     private function load_dependencies() {
@@ -30,14 +37,17 @@ class Journey_To_Wealth_Public {
     public function enqueue_scripts() {
         wp_enqueue_script( 'chartjs', 'https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js', array('jquery'), '3.9.1', true );
         wp_enqueue_script( 'chartjs-adapter-date-fns', 'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js', array('chartjs'), '1.1.0', true );
-        wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'assets/js/public-scripts.js', array( 'jquery', 'chartjs', 'chartjs-adapter-date-fns' ), $this->version, true );
+        
+        $script_path = plugin_dir_path( __FILE__ ) . 'assets/js/public-scripts.js';
+        $script_version = file_exists($script_path) ? $this->version . '.' . filemtime( $script_path ) : $this->version;
+        wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'assets/js/public-scripts.js', array( 'jquery', 'chartjs', 'chartjs-adapter-date-fns' ), $script_version, true );
         
         $analysis_page_slug = get_option('jtw_analysis_page_slug', 'stock-valuation-analysis');
         $analysis_page_url = site_url( '/' . $analysis_page_slug . '/' );
 
         wp_localize_script( $this->plugin_name, 'jtw_public_params', array(
                 'ajax_url' => admin_url( 'admin-ajax.php' ),
-                'analyzer_nonce' => wp_create_nonce( 'jtw_analyzer_nonce_action'),
+                'section_nonce' => wp_create_nonce('jtw_fetch_section_nonce'),
                 'symbol_search_nonce' => wp_create_nonce('jtw_symbol_search_nonce_action'),
                 'analysis_page_url' => $analysis_page_url,
                 'text_loading' => __('Fetching data...', 'journey-to-wealth'),
@@ -77,11 +87,39 @@ class Journey_To_Wealth_Public {
     }
     
     public function render_analyzer_layout_shortcode( $atts ) {
+        if (!is_user_logged_in()) {
+            return '<p>' . esc_html__('You must be logged in to use the stock analyzer.', 'journey-to-wealth') . '</p>';
+        }
+
         $unique_id = 'jtw-analyzer-layout-' . uniqid();
         
         $output = '<div class="jtw-analyzer-wrapper" id="' . esc_attr($unique_id) . '">';
         $output .= '<div id="jtw-main-content-area" class="jtw-main-content-area">';
-        $output .= '<p class="jtw-initial-prompt">' . esc_html__('Please use the search bar in the header to analyze a stock.', 'journey-to-wealth') . '</p>';
+        
+        $url_params = $_GET;
+        if ( !isset($url_params['jtw_selected_symbol']) || empty($url_params['jtw_selected_symbol']) ) {
+            $output .= '<p class="jtw-initial-prompt">' . esc_html__('Please use the search bar in the header to analyze a stock.', 'journey-to-wealth') . '</p>';
+        } else {
+            $output .= '<div class="jtw-content-container">';
+            $output .= '<nav class="jtw-anchor-nav"><ul>';
+            $output .= '<li><a href="#section-overview" class="jtw-anchor-link active">' . esc_html__('Company Overview', 'journey-to-wealth') . '</a></li>';
+            $output .= '<li><a href="#section-past-performance" class="jtw-anchor-link">' . esc_html__('Past Performance', 'journey-to-wealth') . '</a></li>';
+            $output .= '<li><a href="#section-peg-pegy-ratios" class="jtw-anchor-link">' . esc_html__('PEG/PEGY Ratios', 'journey-to-wealth') . '</a></li>';
+            $output .= '<li><a href="#section-metric-valuation" class="jtw-anchor-link">' . esc_html__('Metric Valuation', 'journey-to-wealth') . '</a></li>';
+            $output .= '<li><a href="#section-intrinsic-valuation" class="jtw-anchor-link">' . esc_html__('Intrinsic Valuation', 'journey-to-wealth') . '</a></li>';
+            $output .= '</ul></nav>';
+            
+            $output .= '<main class="jtw-content-main">';
+            $output .= '<div id="jtw-currency-notice-placeholder"></div>';
+            $output .= '<div id="section-overview" class="jtw-content-section-placeholder" data-section="overview"></div>';
+            $output .= '<div id="section-past-performance" class="jtw-content-section-placeholder" data-section="past-performance"></div>';
+            $output .= '<div id="section-peg-pegy-ratios" class="jtw-content-section-placeholder" data-section="peg-pegy-ratios"></div>';
+            $output .= '<div id="section-metric-valuation" class="jtw-content-section-placeholder" data-section="metric-valuation"></div>';
+            $output .= '<div id="section-intrinsic-valuation" class="jtw-content-section-placeholder" data-section="intrinsic-valuation"></div>';
+            $output .= '</main>';
+            $output .= '</div>';
+        }
+        
         $output .= '</div>';
         $output .= '</div>';
         return $output;
@@ -125,93 +163,216 @@ class Journey_To_Wealth_Public {
         wp_send_json_success(['matches' => $limited_matches]);
     }
 
-    public function ajax_fetch_analyzer_data() {
-        check_ajax_referer('jtw_analyzer_nonce_action', 'analyzer_nonce');
-    
+    private function convert_financial_data(&$report_data, $exchange_rate) {
+        if ($exchange_rate == 1.0 || !is_array($report_data)) {
+            return;
+        }
+
+        $report_types = ['annualReports', 'quarterlyReports', 'annualEarnings', 'quarterlyEarnings'];
+        $keys_to_skip = ['fiscalDateEnding', 'commonStockSharesOutstanding'];
+
+        foreach ($report_types as $type) {
+            if (isset($report_data[$type])) {
+                foreach ($report_data[$type] as $key => &$report) {
+                    foreach ($report as $field => &$value) {
+                        if (is_numeric($value) && !in_array($field, $keys_to_skip)) {
+                            $value = (float)$value * $exchange_rate;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private function get_and_prepare_company_data($ticker) {
+        $transient_key = 'jtw_data_' . $ticker;
+        $company_data = get_transient($transient_key);
+
+        if (false === $company_data) {
+            $av_client = new Alpha_Vantage_Client(get_option('jtw_av_api_key'));
+
+            $overview = $av_client->get_company_overview($ticker);
+            if(is_wp_error($overview) || !isset($overview['Symbol'])) { return new WP_Error('api_error', 'Could not retrieve company overview data. The symbol may be invalid or the API limit may have been reached.'); }
+
+            $income_statement = $av_client->get_income_statement($ticker);
+            if(is_wp_error($income_statement) || !isset($income_statement['symbol'])) { return new WP_Error('api_error', 'Could not retrieve income statement data.'); }
+            
+            $balance_sheet = $av_client->get_balance_sheet($ticker);
+            if(is_wp_error($balance_sheet) || !isset($balance_sheet['symbol'])) { return new WP_Error('api_error', 'Could not retrieve balance sheet data.'); }
+
+            $cash_flow = $av_client->get_cash_flow_statement($ticker);
+            if(is_wp_error($cash_flow) || !isset($cash_flow['symbol'])) { return new WP_Error('api_error', 'Could not retrieve cash flow data.'); }
+
+            $earnings = $av_client->get_earnings_data($ticker);
+            if(is_wp_error($earnings) || !isset($earnings['symbol'])) { return new WP_Error('api_error', 'Could not retrieve earnings data.'); }
+
+            $quote = $av_client->get_global_quote($ticker);
+            if(is_wp_error($quote)) { return $quote; }
+
+            $daily_data = $av_client->get_daily_adjusted($ticker);
+            $treasury_yield = $av_client->get_treasury_yield();
+
+            $original_currency = $income_statement['reportedCurrency'] ?? 'USD';
+            $exchange_rate = 1.0;
+            $currency_notice = '';
+
+            if ($original_currency !== 'USD') {
+                $rate_data = $av_client->get_currency_exchange_rate($original_currency, 'USD');
+                if (!is_wp_error($rate_data) && isset($rate_data['Realtime Currency Exchange Rate']['5. Exchange Rate'])) {
+                    $exchange_rate = (float)$rate_data['Realtime Currency Exchange Rate']['5. Exchange Rate'];
+                    $currency_notice = sprintf(
+                        '<div class="jtw-currency-notice notice notice-info inline"><p><strong>Note:</strong> All financial data has been converted from %s to USD at a rate of 1 %s = %s USD.</p></div>',
+                        esc_html($original_currency),
+                        esc_html($original_currency),
+                        esc_html(number_format($exchange_rate, 4))
+                    );
+
+                    $this->convert_financial_data($income_statement, $exchange_rate);
+                    $this->convert_financial_data($balance_sheet, $exchange_rate);
+                    $this->convert_financial_data($cash_flow, $exchange_rate);
+                    $this->convert_financial_data($earnings, $exchange_rate);
+                    
+                } else {
+                    return new WP_Error('currency_error', 'Could not retrieve currency exchange rate to convert financial data to USD.');
+                }
+            }
+
+            $company_data = [
+                'income_statement' => $income_statement,
+                'balance_sheet'    => $balance_sheet,
+                'cash_flow'        => $cash_flow,
+                'earnings'         => $earnings,
+                'overview'         => $overview,
+                'quote'            => $quote,
+                'daily_data'       => $daily_data,
+                'treasury_yield'   => $treasury_yield,
+                'currency_notice'  => $currency_notice,
+            ];
+
+            set_transient($transient_key, $company_data, HOUR_IN_SECONDS);
+        }
+        
+        return $company_data;
+    }
+
+    public function ajax_fetch_section_data() {
+        check_ajax_referer('jtw_fetch_section_nonce', 'nonce');
+
         $ticker = isset($_POST['ticker']) ? sanitize_text_field(strtoupper($_POST['ticker'])) : '';
-        if (empty($ticker)) {
-            wp_send_json_error(['message' => 'No ticker provided.']);
-        }
-    
-        $av_client = new Alpha_Vantage_Client(get_option('jtw_av_api_key'));
-        $overview = $av_client->get_company_overview($ticker);
-        if (is_wp_error($overview) || empty($overview['Symbol'])) {
-            wp_send_json_error(['message' => 'Could not retrieve company overview.']);
+        $section = isset($_POST['section']) ? sanitize_key($_POST['section']) : '';
+
+        if (empty($ticker) || empty($section)) {
+            wp_send_json_error(['message' => 'Missing required parameters.']);
         }
 
-        $this->store_and_map_discovered_company($ticker, $overview['Industry'], $overview['Sector']);
-    
-        $quote = $av_client->get_global_quote($ticker);
-        $income_statement = $av_client->get_income_statement($ticker);
-        $balance_sheet = $av_client->get_balance_sheet($ticker);
-        $cash_flow = $av_client->get_cash_flow_statement($ticker);
-        $earnings = $av_client->get_earnings_data($ticker);
-        $daily_data = $av_client->get_daily_adjusted($ticker);
-        $treasury_yield = $av_client->get_treasury_yield();
-    
-        $latest_price = !is_wp_error($quote) ? (float)($quote['05. price'] ?? 0) : 0;
-        $details = [
-            'name'        => $overview['Name'] ?? 'N/A',
-            'ticker'      => $overview['Symbol'] ?? $ticker,
-            'description' => $overview['Description'] ?? 'No company description available.',
-            'industry'    => $overview['Industry'] ?? 'N/A',
-        ];
-        $market_cap = (float)($overview['MarketCapitalization'] ?? 0);
-        $shares_outstanding = (float)($overview['SharesOutstanding'] ?? 0);
-        $eps = (float)($overview['EPS'] ?? 0);
-    
-        $pe_ratio = isset($overview['PERatio']) && $overview['PERatio'] !== 'None' ? (float)$overview['PERatio'] : 0;
-        $peg_ratio = isset($overview['PEGRatio']) && $overview['PEGRatio'] !== 'None' ? (float)$overview['PEGRatio'] : 0;
-
-        $growth_rate = 0;
-        if ($pe_ratio > 0 && $peg_ratio > 0) {
-            $growth_rate = ($pe_ratio / $peg_ratio);
+        if(!defined('MEPR_VERSION') && file_exists(WP_PLUGIN_DIR . '/memberpress/memberpress.php')) {
+            require_once(WP_PLUGIN_DIR . '/memberpress/memberpress.php');
         }
-
-        $metrics_data = [
-            'peRatio'    => $pe_ratio > 0 ? $pe_ratio : 'N/A',
-            'pbRatio'    => isset($overview['PriceToBookRatio']) && $overview['PriceToBookRatio'] !== 'None' ? (float)$overview['PriceToBookRatio'] : 'N/A',
-            'psRatio'    => isset($overview['PriceToSalesRatioTTM']) && $overview['PriceToSalesRatioTTM'] !== 'None' ? (float)$overview['PriceToSalesRatioTTM'] : 'N/A',
-            'evToEbitda' => isset($overview['EVToEBITDA']) && $overview['EVToEBITDA'] !== 'None' ? (float)$overview['EVToEBITDA'] : 'N/A',
-            'evToSales'  => isset($overview['EVToSales']) && $overview['EVToSales'] !== 'None' ? (float)$overview['EVToSales'] : 'N/A',
-            'fcfYield'   => $this->calculate_av_fcf_yield($cash_flow, $market_cap),
-            'pegRatio'   => [
-                'pe' => $pe_ratio,
-                'defaultGrowth' => $growth_rate
-            ],
-            'pegyRatio'  => [
-                'pe' => $pe_ratio,
-                'dividendYield' => isset($overview['DividendYield']) ? (float)$overview['DividendYield'] * 100 : 0,
-                'defaultGrowth' => $growth_rate
-            ]
-        ];
-    
-        $historical_data = $this->process_av_historical_data($daily_data, $income_statement, $balance_sheet, $cash_flow, $earnings);
-
-        $valuation_data = $this->get_valuation_results($overview, $income_statement, $balance_sheet, $cash_flow, $treasury_yield, $latest_price, $daily_data);
-        
-        $valuation_summary = [
-            'current_price' => $latest_price,
-            'fair_value' => 0, 
-            'percentage_diff' => 0
-        ];
-        
-        $valid_models = [];
-        foreach ($valuation_data as $model_name => $result) {
-            if (!is_wp_error($result) && isset($result['intrinsic_value_per_share'])) {
-                $valid_models[] = $result['intrinsic_value_per_share'];
+        $memberpress_rules = [ 'overview' => 0, 'past-performance' => 0, 'peg-pegy-ratios' => 2271, 'metric-valuation' => 2271, 'intrinsic-valuation' => 2273 ];
+        $required_rule_id = $memberpress_rules[$section] ?? null;
+        $has_access = false;
+        $user_id = get_current_user_id();
+        if ($required_rule_id === null) { $has_access = false; 
+        } elseif ($required_rule_id == 0) { $has_access = is_user_logged_in();
+        } elseif ($user_id > 0 && class_exists('MeprUser')) {
+            global $wpdb;
+            $mepr_user = new MeprUser($user_id);
+            $access_conditions_table = $wpdb->prefix . 'mepr_rule_access_conditions';
+            $required_memberships = $wpdb->get_col($wpdb->prepare("SELECT access_condition FROM {$access_conditions_table} WHERE rule_id = %d AND access_type = 'membership'", $required_rule_id));
+            if (!empty($required_memberships)) {
+                $user_active_memberships = $mepr_user->active_product_subscriptions('ids');
+                $common_memberships = array_intersect($user_active_memberships, $required_memberships);
+                if (!empty($common_memberships)) { $has_access = true; }
             }
         }
-        if (!empty($valid_models)) {
-            $valuation_summary['fair_value'] = array_sum($valid_models) / count($valid_models);
-            if ($latest_price > 0) {
-                $valuation_summary['percentage_diff'] = (($valuation_summary['fair_value'] - $latest_price) / $latest_price) * 100;
-            }
+        if (!$has_access) {
+            $upgrade_url = get_permalink(get_option('mepr_account_page_id'));
+            $html = '<div class="jtw-paywall"><h4>' . esc_html__('Upgrade Required', 'journey-to-wealth') . '</h4><p>' . esc_html__('This section is available for premium members. Please upgrade your plan to unlock this content.', 'journey-to-wealth') . '</p><a href="' . esc_url($upgrade_url) . '" class="jtw-button-primary">' . esc_html__('Upgrade Now', 'journey-to-wealth') . '</a></div>';
+            wp_send_json_success(['html' => $html, 'paywall' => true]);
+            return;
         }
-    
-        $html = $this->build_analyzer_html($details, $latest_price, $market_cap, $shares_outstanding, $metrics_data, $historical_data, $valuation_data, $valuation_summary, $eps);
-    
-        wp_send_json_success(['html' => $html]);
+        
+        $company_data = $this->get_and_prepare_company_data($ticker);
+        if (is_wp_error($company_data)) {
+            wp_send_json_error(['message' => $company_data->get_error_message()]);
+            return;
+        }
+
+        $html = '';
+        $json_response = [];
+
+        if ($section === 'overview' && !empty($company_data['currency_notice'])) {
+            $json_response['currency_notice'] = $company_data['currency_notice'];
+        }
+
+        switch ($section) {
+            case 'overview':
+                if (!is_wp_error($company_data['overview']) && !empty($company_data['overview']['Symbol'])) {
+                    $this->store_and_map_discovered_company($ticker, $company_data['overview']['Industry'], $company_data['overview']['Sector']);
+                    $html = $this->build_overview_section_html($company_data['overview'], $company_data['quote']);
+                }
+                break;
+
+            case 'past-performance':
+                $historical_data = $this->process_av_historical_data($company_data['daily_data'], $company_data['income_statement'], $company_data['balance_sheet'], $company_data['cash_flow'], $company_data['earnings']);
+                $html = $this->build_past_performance_section_html($historical_data);
+                break;
+            
+            case 'peg-pegy-ratios':
+                $overview = $company_data['overview'];
+                $quote = $company_data['quote'];
+                $pe_ratio = isset($overview['PERatio']) && $overview['PERatio'] !== 'None' ? (float)$overview['PERatio'] : 0;
+                $peg_ratio = isset($overview['PEGRatio']) && $overview['PEGRatio'] !== 'None' ? (float)$overview['PEGRatio'] : 0;
+                $growth_rate = ($pe_ratio > 0 && $peg_ratio > 0) ? ($pe_ratio / $peg_ratio) : 0;
+                $metrics_data = [
+                    'pegRatio' => ['pe' => $pe_ratio, 'defaultGrowth' => $growth_rate],
+                    'pegyRatio' => ['pe' => $pe_ratio, 'dividendYield' => isset($overview['DividendYield']) ? (float)$overview['DividendYield'] * 100 : 0, 'defaultGrowth' => $growth_rate]
+                ];
+                $stock_price = !is_wp_error($quote) ? (float)($quote['05. price'] ?? 0) : 0;
+                $eps = (float)($overview['EPS'] ?? 0);
+                $html = $this->build_peg_pegy_ratios_section_html($metrics_data, $stock_price, $eps);
+                break;
+
+            case 'metric-valuation':
+                 $overview = $company_data['overview'];
+                 $market_cap = (float)($overview['MarketCapitalization'] ?? 0);
+                 $metrics_data = [
+                    'peRatio'    => isset($overview['PERatio']) && $overview['PERatio'] !== 'None' ? (float)$overview['PERatio'] : 'N/A',
+                    'pbRatio'    => isset($overview['PriceToBookRatio']) && $overview['PriceToBookRatio'] !== 'None' ? (float)$overview['PriceToBookRatio'] : 'N/A',
+                    'psRatio'    => isset($overview['PriceToSalesRatioTTM']) && $overview['PriceToSalesRatioTTM'] !== 'None' ? (float)$overview['PriceToSalesRatioTTM'] : 'N/A',
+                    'evToEbitda' => isset($overview['EVToEBITDA']) && $overview['EVToEBITDA'] !== 'None' ? (float)$overview['EVToEBITDA'] : 'N/A',
+                    'evToSales'  => isset($overview['EVToSales']) && $overview['EVToSales'] !== 'None' ? (float)$overview['EVToSales'] : 'N/A',
+                    'fcfYield'   => $this->calculate_av_fcf_yield($company_data['cash_flow'], $market_cap),
+                ];
+                $html = $this->build_metric_valuation_section_html($metrics_data);
+                break;
+
+            case 'intrinsic-valuation':
+                $latest_price = !is_wp_error($company_data['quote']) ? (float)($company_data['quote']['05. price'] ?? 0) : 0;
+                $valuation_data = $this->get_valuation_results($company_data['overview'], $company_data['income_statement'], $company_data['balance_sheet'], $company_data['cash_flow'], $company_data['treasury_yield'], $latest_price, $company_data['daily_data']);
+                $valuation_summary = [ 'current_price' => $latest_price, 'fair_value' => 0, 'percentage_diff' => 0 ];
+                $valid_models = [];
+                foreach ($valuation_data as $result) {
+                    if (!is_wp_error($result) && isset($result['intrinsic_value_per_share'])) {
+                        $valid_models[] = $result['intrinsic_value_per_share'];
+                    }
+                }
+                if (!empty($valid_models)) {
+                    $valuation_summary['fair_value'] = array_sum($valid_models) / count($valid_models);
+                    if ($latest_price > 0) {
+                        $valuation_summary['percentage_diff'] = (($valuation_summary['fair_value'] - $latest_price) / $latest_price) * 100;
+                    }
+                }
+                $html = $this->build_intrinsic_valuation_section_html($valuation_data, $valuation_summary, $company_data['overview']);
+                break;
+        }
+
+        if (empty($html)) {
+            wp_send_json_error(['message' => 'Could not generate content for this section. The company may not support this type of analysis.']);
+        } else {
+            $json_response['html'] = $html;
+            wp_send_json_success($json_response);
+        }
     }
 
     private function get_valuation_results($overview, $income_statement, $balance_sheet, $cash_flow, $treasury_yield, $latest_price, $daily_data) {
@@ -641,18 +802,14 @@ class Journey_To_Wealth_Public {
         return $prefix . $formatted_number;
     }
 
-    private function build_analyzer_html($details, $stock_price, $market_cap, $shares_outstanding, $metrics_data, $historical_data, $valuation_data, $valuation_summary, $eps) {
-        $name = $details['name'] ?? 'N/A'; $ticker = $details['ticker'] ?? 'N/A'; $description = $details['description'] ?? 'No company description available.';
-        $output = '<div class="jtw-content-container">';
-        $output .= '<nav class="jtw-anchor-nav"><ul>';
-        $output .= '<li><a href="#section-overview" class="jtw-anchor-link active">' . esc_html__('Company Overview', 'journey-to-wealth') . '</a></li>';
-        $output .= '<li><a href="#section-past-performance" class="jtw-anchor-link">' . esc_html__('Past Performance', 'journey-to-wealth') . '</a></li>';
-        $output .= '<li><a href="#section-peg-pegy-ratios" class="jtw-anchor-link">' . esc_html__('PEG/PEGY Ratios', 'journey-to-wealth') . '</a></li>';
-        $output .= '<li><a href="#section-metric-valuation" class="jtw-anchor-link">' . esc_html__('Metric Valuation', 'journey-to-wealth') . '</a></li>';
-        $output .= '<li><a href="#section-intrinsic-valuation" class="jtw-anchor-link">' . esc_html__('Intrinsic Valuation', 'journey-to-wealth') . '</a></li>';
-        $output .= '</ul></nav>';
-        $output .= '<main class="jtw-content-main">';
-        $output .= '<section id="section-overview" class="jtw-content-section">';
+    private function build_overview_section_html($overview, $quote) {
+        $ticker = $overview['Symbol'] ?? 'N/A';
+        $description = $overview['Description'] ?? 'No company description available.';
+        $stock_price = !is_wp_error($quote) ? (float)($quote['05. price'] ?? 0) : 0;
+        $market_cap = (float)($overview['MarketCapitalization'] ?? 0);
+        $shares_outstanding = (float)($overview['SharesOutstanding'] ?? 0);
+
+        $output = '<div class="jtw-content-section" id="section-overview-content">';
         $output .= '<h4>' . esc_html($ticker) . ' ' . esc_html__('Company Overview', 'journey-to-wealth') . '</h4>';
         $output .= '<div class="jtw-company-overview-grid">';
         $output .= '<div class="jtw-company-description"><p>' . esc_html($description) . '</p></div>';
@@ -660,18 +817,13 @@ class Journey_To_Wealth_Public {
         $output .= $this->create_metric_card('Current Price', $stock_price, '$');
         $output .= $this->create_metric_card('Market Capitalization', $market_cap, '$', '', true);
         $output .= $this->create_metric_card('Shares Outstanding', $shares_outstanding, '', '', true);
-        $output .= '</div></div></section>';
-        $output .= $this->build_past_performance_section_html($historical_data);
-        $output .= $this->build_peg_pegy_ratios_section_html($metrics_data, $stock_price, $eps);
-        $output .= $this->build_metric_valuation_section_html($metrics_data);
-        $output .= $this->build_intrinsic_valuation_section_html($valuation_data, $valuation_summary, $details);
-        $output .= '</main>';
-        $output .= '</div>';
+        $output .= '</div></div></div>';
+
         return $output;
     }
     
     private function build_peg_pegy_ratios_section_html($metrics, $stock_price, $eps) {
-        $output = '<section id="section-peg-pegy-ratios" class="jtw-content-section">';
+        $output = '<div id="section-peg-pegy-ratios-content" class="jtw-content-section">';
         $output .= '<h4>' . esc_html__('PEG/PEGY Ratio Calculator', 'journey-to-wealth') . '</h4>';
         
         if ($eps <= 0) {
@@ -694,12 +846,12 @@ class Journey_To_Wealth_Public {
             $output .= '</div></div></div>';
         }
         
-        $output .= '</section>';
+        $output .= '</div>';
         return $output;
     }
 
     private function build_metric_valuation_section_html($metrics) {
-        $output = '<section id="section-metric-valuation" class="jtw-content-section">';
+        $output = '<div id="section-metric-valuation-content" class="jtw-content-section">';
         $output .= '<h4>' . esc_html__('Metric Valuation', 'journey-to-wealth') . '</h4>';
         $output .= '<div class="jtw-results-grid">';
         $output .= $this->create_metric_card('P/E Ratio (TTM)', $metrics['peRatio']);
@@ -708,13 +860,13 @@ class Journey_To_Wealth_Public {
         $output .= $this->create_metric_card('EV/EBITDA', $metrics['evToEbitda']);
         $output .= $this->create_metric_card('EV/Sales', $metrics['evToSales']);
         $output .= $this->create_metric_card('FCF Yield', $metrics['fcfYield'], '%');
-        $output .= '</div></section>';
+        $output .= '</div></div>';
         return $output;
     }
 
     private function build_past_performance_section_html($historical_data) {
         $unique_id = 'hist-trends-' . uniqid();
-        $output = '<section id="section-past-performance" class="jtw-content-section">';
+        $output = '<div id="section-past-performance-content" class="jtw-content-section">';
         $output .= '<h4>' . esc_html__('Past Performance', 'journey-to-wealth') . '</h4>';
         $output .= '<div class="jtw-chart-controls"><div class="jtw-period-toggle">';
         $output .= '<button class="jtw-period-button active" data-period="annual">Annual</button><button class="jtw-period-button" data-period="quarterly">Quarterly</button></div>';
@@ -742,12 +894,12 @@ class Journey_To_Wealth_Public {
             $output .= "<script type='application/json' class='jtw-chart-data' data-chart-id='" . esc_attr($chart_id) . "' data-chart-type='" . esc_attr($config['type']) . "' data-prefix='" . esc_attr($config['prefix']) . "' data-annual='" . esc_attr(json_encode($annual_data)) . "' data-quarterly='" . esc_attr(json_encode($quarterly_data)) . "' data-colors='" . esc_attr(json_encode($config['colors'])) . "'></script>";
             $output .= '</div>';
         }
-        $output .= '</div></section>';
+        $output .= '</div></div>';
         return $output;
     }
 
     private function build_intrinsic_valuation_section_html($valuation_data, $valuation_summary, $details) {
-        $output = '<section id="section-intrinsic-valuation" class="jtw-content-section">';
+        $output = '<div id="section-intrinsic-valuation-content" class="jtw-content-section">';
         $output .= '<h4>' . esc_html__('Share Price vs Fair Value', 'journey-to-wealth') . '</h4>';
         if ($valuation_summary['fair_value'] > 0) {
             $output .= '<div class="jtw-valuation-chart-container" id="jtw-valuation-chart-container" data-current-price="' . esc_attr($valuation_summary['current_price']) . '" data-fair-value="' . esc_attr($valuation_summary['fair_value']) . '" data-percentage-diff="' . esc_attr($valuation_summary['percentage_diff']) . '"><canvas id="jtw-valuation-chart"></canvas></div>';
@@ -766,12 +918,12 @@ class Journey_To_Wealth_Public {
             $output .= $this->build_valuation_assumptions_modal_html($result['calculation_breakdown'], $details);
             $output .= '</div></div>';
         }
-        $output .= '</div><div class="jtw-modal-overlay"></div></section>';
+        $output .= '</div><div class="jtw-modal-overlay"></div></div>';
         return $output;
     }
 
     private function build_valuation_assumptions_modal_html($data, $details) {
-        $ticker = $details['ticker'] ?? 'the company';
+        $ticker = $details['Symbol'] ?? 'the company';
         $model_name = $data['model_name'] ?? 'Valuation';
         $output = '<h4>' . esc_html($model_name) . ' Assumptions for ' . esc_html($ticker) . '</h4>';
         
@@ -975,7 +1127,7 @@ class Journey_To_Wealth_Public {
         $output .= '<table class="jtw-modal-table"><thead><tr><th>Data Point</th><th>Calculation/ Source</th><th>Result</th></tr></thead><tbody>';
         $output .= '<tr><td>Risk-Free Rate</td><td>' . esc_html($discount_calc['risk_free_rate_source']) . '</td><td>' . number_format($discount_calc['risk_free_rate'] * 100, 1) . '%</td></tr>';
         $output .= '<tr><td>Equity Risk Premium</td><td>' . esc_html($discount_calc['erp_source']) . '</td><td>' . number_format($discount_calc['equity_risk_premium'] * 100, 1) . '%</td></tr>';
-        $output .= '<tr><td><strong>Discount Rate/ Cost of Equity</strong></td><td><strong>' . esc_html($discount_calc['cost_of_equity_calc']) . '</strong></td><td><strong>' . number_format($data['cost_of_equity'] * 100, 2) . '%</strong></td></tr>';
+        $output .= '<tr><td><strong>Discount Rate/ Cost of Equity</strong></td><td><strong>' . esc_html($discount_calc['cost_of_equity_calc']) . '</strong></td><td><strong>' . number_format($data['inputs']['cost_of_equity'] * 100, 2) . '%</strong></td></tr>';
         $output .= '</tbody></table>';
 
         // Table for Levered Beta Calculation

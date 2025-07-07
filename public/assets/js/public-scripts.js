@@ -3,7 +3,7 @@
  *
  * This script powers:
  * 1. The header lookup form, which handles live search and redirects to the analysis page.
- * 2. The main analyzer page, which detects the URL parameter, auto-fetches data, and renders charts.
+ * 2. The main analyzer page, which now uses IntersectionObserver to lazy-load section content.
  *
  * @link       https://example.com/journey-to-wealth/
  * @since      1.0.0
@@ -34,11 +34,6 @@
         };
     }
 
-    /**
-     * Formats large numbers into a compact representation (K, M, B, T).
-     * @param {number} num The number to format.
-     * @returns {string} The formatted number as a string.
-     */
     function formatLargeNumber(num) {
         if (typeof num !== 'number' || num === 0) return '0';
         const absNum = Math.abs(num);
@@ -51,9 +46,6 @@
         return sign + num.toFixed(2);
     }
 
-    /**
-     * Initializes the interactive PEG/PEGY calculator on the analysis page.
-     */
     function initializePegPegySimulator($container) {
         const $calculator = $container.find('.jtw-peg-pegy-calculator');
         if (!$calculator.length) return;
@@ -120,10 +112,6 @@
         updateRatios();
     }
 
-
-    /**
-     * Initializes the Intrinsic Valuation histogram-style chart.
-     */
     function initializeValuationChart($container) {
         const $chartContainer = $container.find('#jtw-valuation-chart-container');
         if (!$chartContainer.length) return;
@@ -148,12 +136,11 @@
                 const undervaluedPixel = x.getPixelForValue(undervaluedLimit);
                 const overvaluedPixel = x.getPixelForValue(overvaluedLimit);
                 
-                // **UPDATED** Changed to solid colors
-                ctx.fillStyle = '#4CAF50'; // Solid Green for undervalued
+                ctx.fillStyle = '#4CAF50';
                 ctx.fillRect(left, top, overvaluedPixel - left, height);
-                ctx.fillStyle = '#FFC107'; // Solid Yellow for fairly valued
+                ctx.fillStyle = '#FFC107';
                 ctx.fillRect(overvaluedPixel, top, undervaluedPixel - overvaluedPixel, height);
-                ctx.fillStyle = '#F44336'; // Solid Red for overvalued
+                ctx.fillStyle = '#F44336';
                 ctx.fillRect(undervaluedPixel, top, right - undervaluedPixel, height);
 
                 ctx.restore();
@@ -246,9 +233,6 @@
         $chartContainer.append($annotation);
     }
 
-    /**
-     * Initializes the Historical Trends charts and the period toggle.
-     */
     function initializeHistoricalCharts($container) {
         const $chartDataScripts = $container.find('.jtw-chart-data');
         if (!$chartDataScripts.length) return;
@@ -410,23 +394,19 @@
             });
         }
 
-        $container.find('.jtw-period-button').on('click', function() {
+        $container.on('click', '.jtw-period-button', function() {
             const $button = $(this);
             if ($button.hasClass('active')) return;
-
             $container.find('.jtw-period-button').removeClass('active');
             $button.addClass('active');
-            
             updateAndFilterCharts();
         });
 
-        $container.find('.jtw-category-button').on('click', function() {
+        $container.on('click', '.jtw-category-button', function() {
             const $button = $(this);
             if ($button.hasClass('active')) return;
-
             $container.find('.jtw-category-button').removeClass('active');
             $button.addClass('active');
-
             updateAndFilterCharts();
         });
     }
@@ -437,7 +417,7 @@
 
         const $navLinks = $anchorNav.find('a.jtw-anchor-link');
         const $contentMain = $contentArea.find('.jtw-content-main');
-        const $sections = $contentMain.find('.jtw-content-section');
+        const $sections = $contentMain.find('.jtw-content-section-placeholder');
         const offsetTop = 150; 
 
         $navLinks.off('click').on('click', function(e) {
@@ -457,7 +437,8 @@
             $sections.each(function() {
                 const top = $(this).offset().top;
                 const height = $(this).height();
-                if (top <= scrollPos && (top + height) > scrollPos) {
+                const sectionContentHeight = $(this).children().first().height() || height;
+                if (top <= scrollPos && (top + sectionContentHeight) > scrollPos) {
                     activeLink = $navLinks.filter('[href="#' + $(this).attr('id') + '"]');
                 }
             });
@@ -471,8 +452,6 @@
         
         $(document).off('scroll.jtw').on('scroll.jtw', onScroll);
         onScroll();
-
-        initializePegPegySimulator($contentArea);
     }
 
     function initializeHeaderSearch() {
@@ -595,46 +574,75 @@
         const $container = $('.jtw-analyzer-wrapper').first();
         if (!$container.length) return;
 
-        const $mainContentArea = $container.find('#jtw-main-content-area');
-        
-        function fetchData(ticker) {
-            if (!ticker) return;
+        const urlParams = new URLSearchParams(window.location.search);
+        const ticker = urlParams.get('jtw_selected_symbol');
 
-            $mainContentArea.html('<p class="jtw-loading-message">' + getLocalizedText('text_loading', 'Fetching...') + '</p>');
+        if (!ticker) return;
 
-            $.ajax({
-                url: jtw_public_params.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'jtw_fetch_analyzer_data',
-                    analyzer_nonce: jtw_public_params.analyzer_nonce, 
-                    ticker: ticker
-                },
-                dataType: 'json',
-                success: function(response) {
-                    if (response.success && response.data && response.data.html) {
-                        $mainContentArea.html(response.data.html);
-                        setupSWSLayoutInteractivity($mainContentArea);
-                        initializeHistoricalCharts($mainContentArea);
-                        initializeValuationChart($mainContentArea);
-                    } else {
-                        const errorMessage = response.data.message || getLocalizedText('text_error');
-                        $mainContentArea.html('<div class="jtw-error notice notice-error inline"><p>' + errorMessage + '</p></div>');
+        setupSWSLayoutInteractivity($container);
+
+        const placeholders = document.querySelectorAll('.jtw-content-section-placeholder');
+
+        const observer = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const $placeholder = $(entry.target);
+                    const section = $placeholder.data('section');
+                    
+                    if ($placeholder.data('loaded')) {
+                        observer.unobserve(entry.target);
+                        return;
                     }
-                },
-                error: function(jqXHR) {
-                    let serverError = jqXHR.responseText || getLocalizedText('text_error');
-                    $mainContentArea.html('<div class="jtw-error notice notice-error inline"><p>AJAX request failed. Server responded: <br><small><code>' + serverError + '</code></small></p></div>');
+
+                    $placeholder.data('loaded', true);
+                    $placeholder.html('<div class="jtw-loading-spinner"></div>');
+
+                    $.ajax({
+                        url: jtw_public_params.ajax_url,
+                        type: 'POST',
+                        data: {
+                            action: 'jtw_fetch_section_data',
+                            nonce: jtw_public_params.section_nonce,
+                            ticker: ticker.toUpperCase(),
+                            section: section
+                        },
+                        dataType: 'json',
+                        success: function(response) {
+                            if (response.success && response.data) {
+                                if (response.data.currency_notice) {
+                                    $('#jtw-currency-notice-placeholder').html(response.data.currency_notice).show();
+                                }
+
+                                if (response.data.html) {
+                                    $placeholder.html(response.data.html);
+                                }
+                                
+                                if (section === 'past-performance') {
+                                    initializeHistoricalCharts($placeholder);
+                                } else if (section === 'intrinsic-valuation') {
+                                    initializeValuationChart($placeholder);
+                                } else if (section === 'peg-pegy-ratios') {
+                                    initializePegPegySimulator($placeholder);
+                                }
+                            } else {
+                                const errorMessage = response.data.message || getLocalizedText('text_error');
+                                $placeholder.html('<div class="jtw-error notice notice-error inline"><p>' + errorMessage + '</p></div>');
+                            }
+                        },
+                        error: function(jqXHR) {
+                            let serverError = jqXHR.responseText || getLocalizedText('text_error');
+                            $placeholder.html('<div class="jtw-error notice notice-error inline"><p>AJAX request failed. Server responded: <br><small><code>' + serverError + '</code></small></p></div>');
+                        }
+                    });
+
+                    observer.unobserve(entry.target);
                 }
             });
-        }
-        
-        const urlParams = new URLSearchParams(window.location.search);
-        const symbolFromUrl = urlParams.get('jtw_selected_symbol');
+        }, { rootMargin: "200px" });
 
-        if (symbolFromUrl) {
-            fetchData(symbolFromUrl.toUpperCase());
-        }
+        placeholders.forEach(placeholder => {
+            observer.observe(placeholder);
+        });
     }
 
     $(document).ready(function() {

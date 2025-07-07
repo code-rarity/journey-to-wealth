@@ -30,9 +30,11 @@
 
 
 /* --- General Error, Notice, and Message Styling --- */
-.jtw-error, .jtw-notice { margin: 10px 0 15px; padding: 12px 15px; border-left-width: 4px; border-left-style: solid; box-shadow: 0 2px 4px rgba(0,0,0,.05); background-color: var(--jtw-content-bg); border-radius: 4px; }
-.jtw-error p, .jtw-notice p { margin: 0; padding: 0; line-height: 1.6; color: var(--jtw-text-medium); }
+.jtw-error, .jtw-notice, .jtw-currency-notice { margin: 10px 0 15px; padding: 12px 15px; border-left-width: 4px; border-left-style: solid; box-shadow: 0 2px 4px rgba(0,0,0,.05); background-color: var(--jtw-content-bg); border-radius: 4px; }
+.jtw-error p, .jtw-notice p, .jtw-currency-notice p { margin: 0; padding: 0; line-height: 1.6; color: var(--jtw-text-medium); }
 .jtw-error { border-left-color: var(--jtw-red-negative); }
+.jtw-notice.notice-info, .jtw-currency-notice { border-left-color: var(--jtw-primary-blue); }
+
 .jtw-initial-prompt, .jtw-loading-message { text-align: center; padding: 40px 20px; font-style: italic; color: var(--jtw-text-medium); background-color: var(--jtw-content-bg); border: 1px solid var(--jtw-border-color); border-radius: 6px;}
 
 
@@ -171,7 +173,27 @@
 .jtw-anchor-nav ul li a:hover { background-color: #e9ecef; color: var(--jtw-text-dark); }
 .jtw-anchor-nav ul li a.active { background-color: #e7f3ff; color: var(--jtw-primary-blue); font-weight: 600; border-left-color: var(--jtw-primary-blue); }
 .jtw-content-main { flex: 1; min-width: 0; }
-.jtw-content-section { padding: 25px; background-color: var(--jtw-content-bg); border: 1px solid var(--jtw-border-color); border-radius: 8px; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+
+/* **UPDATED**: Placeholders and loaded content sections */
+.jtw-content-section-placeholder {
+    min-height: 400px; /* Prevents page jump */
+    margin-bottom: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+.jtw-content-section { 
+    padding: 25px; 
+    background-color: var(--jtw-content-bg); 
+    border: 1px solid var(--jtw-border-color); 
+    border-radius: 8px; 
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03); 
+}
+.jtw-content-section-placeholder:not(:empty) .jtw-content-section {
+    width: 100%;
+}
+
 
 /* --- Responsive Stacking --- */
 @media (max-width: 1024px) {
@@ -366,9 +388,6 @@
 
 
 /* --- Intrinsic Valuation Section --- */
-#section-intrinsic-valuation {
-    padding-bottom: 25px; 
-}
 .jtw-valuation-chart-container {
     position: relative;
     width: 100%;
@@ -448,6 +467,10 @@
     width: 90%;
     max-width: 1000px; /* **UPDATED** */
     box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+.jtw-modal-content {
+    max-height: 80vh; 
+    overflow-y: auto; 
 }
 .jtw-modal-content h4 {
     margin-top: 0;
@@ -532,7 +555,7 @@
 
 /* --- **UPDATED** Styles for Data Assumptions Modal --- */
 .jtw-modal-content {
-    max-height: 50vh; /* **UPDATED** Reduced height */
+    max-height: 80vh; 
     overflow-y: auto; 
 }
 .jtw-modal-table {
@@ -562,4 +585,52 @@
 .jtw-modal-table strong {
     font-weight: 600;
     color: var(--jtw-text-dark);
+}
+
+/* **NEW**: Loading Spinner */
+.jtw-loading-spinner {
+    border: 5px solid var(--jtw-page-bg);
+    border-top: 5px solid var(--jtw-primary-blue);
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* **NEW**: Paywall Styles */
+.jtw-paywall {
+    width: 100%;
+    padding: 30px;
+    text-align: center;
+    background-color: var(--jtw-content-bg);
+    border: 1px solid var(--jtw-border-color);
+    border-radius: 8px;
+}
+.jtw-paywall h4 {
+    margin-top: 0;
+    font-size: 1.5em;
+    color: var(--jtw-text-dark);
+}
+.jtw-paywall p {
+    color: var(--jtw-text-medium);
+    margin: 15px 0;
+}
+.jtw-button-primary {
+    display: inline-block;
+    background-color: var(--jtw-primary-blue);
+    color: #fff;
+    padding: 12px 25px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: background-color 0.2s ease;
+}
+.jtw-button-primary:hover {
+    background-color: #0056b3;
+    color: #fff;
 }
