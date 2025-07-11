@@ -15,7 +15,6 @@
 (function ($) {
     'use strict';
 
-    // Helper to safely get localized text from wp_localize_script
     function getLocalizedText(key, fallbackText) {
         if (typeof jtw_public_params !== 'undefined' && jtw_public_params[key]) {
             return jtw_public_params[key];
@@ -23,7 +22,6 @@
         return fallbackText;
     }
     
-    // Debounce function to limit how often AJAX calls are made during typing
     function debounce(func, delay) {
         let timeout;
         return function() {
@@ -411,6 +409,86 @@
         });
     }
 
+    function initializeOverviewChart($container) {
+        const $chartScript = $container.find('.jtw-overview-price-chart .jtw-chart-data');
+        if (!$chartScript.length) return;
+
+        const chartId = $chartScript.data('chart-id');
+        const chartType = $chartScript.data('chart-type');
+        const prefix = $chartScript.data('prefix');
+        let priceData;
+
+        try {
+            priceData = JSON.parse($chartScript.attr('data-annual'));
+        } catch (e) {
+            console.error("Failed to parse price data for overview chart:", chartId, e);
+            return;
+        }
+
+        let colors = ['#007bff', 'rgba(0, 122, 255, 0.1)'];
+        const colorsAttr = $chartScript.attr('data-colors');
+        if (colorsAttr) {
+            try {
+                const parsedColors = JSON.parse(colorsAttr);
+                if(Array.isArray(parsedColors) && parsedColors.length > 0) {
+                    colors = parsedColors;
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        const ctx = document.getElementById(chartId);
+        if (!ctx) return;
+
+        const config = {
+            type: 'line',
+            data: {
+                labels: priceData.labels,
+                datasets: [{
+                    label: 'Price',
+                    data: priceData.data,
+                    borderColor: colors[0],
+                    backgroundColor: colors[1],
+                    fill: true,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) { label += ': '; }
+                                if (context.parsed.y !== null) {
+                                    label += prefix + context.parsed.y.toFixed(2);
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: 'year' },
+                        grid: { display: false }
+                    },
+                    y: {
+                        ticks: {
+                            callback: function(value) { return prefix + formatLargeNumber(value); }
+                        }
+                    }
+                }
+            }
+        };
+        new Chart(ctx, config);
+    }
+
     function setupSWSLayoutInteractivity($contentArea) {
         const $anchorNav = $contentArea.find('.jtw-anchor-nav');
         if (!$anchorNav.length) return;
@@ -617,7 +695,9 @@
                                     $placeholder.html(response.data.html);
                                 }
                                 
-                                if (section === 'past-performance') {
+                                if (section === 'overview') {
+                                    initializeOverviewChart($placeholder);
+                                } else if (section === 'past-performance') {
                                     initializeHistoricalCharts($placeholder);
                                 } else if (section === 'intrinsic-valuation') {
                                     initializeValuationChart($placeholder);
@@ -662,6 +742,26 @@
         };
 
         $('body').on('click', '.jtw-modal-close, .jtw-modal-overlay', closeModal);
+
+        // **MODIFIED**: Updated "read more" logic for new inline structure
+        $('body').on('click', '.jtw-read-more', function(e) {
+            e.preventDefault();
+            const $this = $(this);
+            const $moreText = $this.siblings('.jtw-description-more');
+            const $shortText = $this.siblings('.jtw-description-content');
+            
+            $moreText.toggle();
+            
+            if ($moreText.is(':visible')) {
+                // When showing more, hide the ellipsis from the short text
+                $shortText.html($shortText.html().replace('...', ''));
+                $this.text($this.data('less-text'));
+            } else {
+                // When showing less, add the ellipsis back
+                $shortText.html($shortText.html() + '...');
+                $this.text($this.data('more-text'));
+            }
+        });
     });
 
 })( jQuery );

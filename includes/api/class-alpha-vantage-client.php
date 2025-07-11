@@ -21,12 +21,11 @@ class Alpha_Vantage_Client {
 
     private $api_key;
     private $base_url = 'https://www.alphavantage.co/query';
-    // **FIX** Set reasonable cache times to prevent stale data.
-    private $cache_expiration_long = 0;//3600; // 1 hour for overview/daily data
-    private $cache_expiration_short = 0;//900; // 15 minutes for quotes
-    private $cache_expiration_statements = 0;//86400; // 24 hours for financial statements
-    private $cache_expiration_search = 0;//21600; // 6 hours for searches
-    private $cache_expiration_yield = 0;//86400; // 24 hours for treasury yield
+    private $cache_expiration_long = 3600; // 1 hour for overview/daily data
+    private $cache_expiration_short = 900; // 15 minutes for quotes
+    private $cache_expiration_statements = 86400; // 24 hours for financial statements
+    private $cache_expiration_search = 21600; // 6 hours for searches
+    private $cache_expiration_yield = 86400; // 24 hours for treasury yield
 
     public function __construct( $api_key ) {
         $this->api_key = $api_key;
@@ -209,14 +208,6 @@ class Alpha_Vantage_Client {
         return $data;
     }
 
-    /**
-     * **NEW**: Fetches the currency exchange rate between two currencies.
-     *
-     * @since 3.4.0
-     * @param string $from_currency The currency to convert from (e.g., 'EUR').
-     * @param string $to_currency   The currency to convert to (e.g., 'USD').
-     * @return array|WP_Error The API response or a WP_Error object.
-     */
     public function get_currency_exchange_rate( $from_currency, $to_currency ) {
         if ( empty( $this->api_key ) ) {
             return new WP_Error( 'api_key_missing', __( 'API Key not configured.', 'journey-to-wealth' ) );
@@ -230,7 +221,6 @@ class Alpha_Vantage_Client {
         ];
         $transient_key = 'jtw_exchange_rate_' . $from_currency . '_' . $to_currency;
 
-        // Use a shorter expiration for exchange rates as they change frequently.
         return $this->do_request( $params, $transient_key, $this->cache_expiration_short );
     }
 }

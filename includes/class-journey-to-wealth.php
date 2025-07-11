@@ -181,6 +181,9 @@ class Journey_To_Wealth {
         $this->loader->add_shortcode( 'jtw_header_lookup', $plugin_public, 'render_header_lookup_shortcode' );
         $this->loader->add_shortcode( 'jtw_mobile_header_lookup', $plugin_public, 'render_mobile_header_lookup_shortcode' );
         $this->loader->add_shortcode( 'jtw_stock_analyzer', $plugin_public, 'render_analyzer_layout_shortcode' );
+        
+        // **NEW**: Register the new financial dictionary shortcode
+        $this->loader->add_shortcode( 'jtw_financial_dictionary', $plugin_public, 'render_financial_dictionary_shortcode' );
 
 		// Register AJAX actions
 		$this->loader->add_action('wp_ajax_jtw_fetch_analyzer_data', $plugin_public, 'ajax_fetch_analyzer_data');

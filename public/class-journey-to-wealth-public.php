@@ -212,10 +212,12 @@ class Journey_To_Wealth_Public {
             $daily_data = $av_client->get_daily_adjusted($ticker);
             $treasury_yield = $av_client->get_treasury_yield();
 
-            // **FIX**: Correctly get currency from the first annual report
             $original_currency = 'USD';
             if (isset($income_statement['annualReports'][0]['reportedCurrency'])) {
-                $original_currency = $income_statement['annualReports'][0]['reportedCurrency'];
+                $currency_value = $income_statement['annualReports'][0]['reportedCurrency'];
+                if (!empty($currency_value) && strcasecmp(trim($currency_value), 'none') !== 0) {
+                    $original_currency = strtoupper(trim($currency_value));
+                }
             }
 
             $exchange_rate = 1.0;
@@ -314,7 +316,7 @@ class Journey_To_Wealth_Public {
             case 'overview':
                 if (!is_wp_error($company_data['overview']) && !empty($company_data['overview']['Symbol'])) {
                     $this->store_and_map_discovered_company($ticker, $company_data['overview']['Industry'], $company_data['overview']['Sector']);
-                    $html = $this->build_overview_section_html($company_data['overview'], $company_data['quote']);
+                    $html = $this->build_overview_section_html($company_data['overview'], $company_data['quote'], $company_data['daily_data']);
                 }
                 break;
 
@@ -354,7 +356,7 @@ class Journey_To_Wealth_Public {
 
             case 'intrinsic-valuation':
                 $latest_price = !is_wp_error($company_data['quote']) ? (float)($company_data['quote']['05. price'] ?? 0) : 0;
-                $valuation_data = $this->get_valuation_results($company_data['overview'], $company_data['income_statement'], $company_data['balance_sheet'], $company_data['cash_flow'], $company_data['treasury_yield'], $latest_price, $company_data['daily_data']);
+                $valuation_data = $this->get_valuation_results($company_data['overview'], $company_data['income_statement'], $company_data['balance_sheet'], $company_data['cash_flow'], $company_data['earnings'], $company_data['treasury_yield'], $latest_price, $company_data['daily_data']);
                 $valuation_summary = [ 'current_price' => $latest_price, 'fair_value' => 0, 'percentage_diff' => 0 ];
                 $valid_models = [];
                 foreach ($valuation_data as $result) {
@@ -380,13 +382,20 @@ class Journey_To_Wealth_Public {
         }
     }
 
-    private function get_valuation_results($overview, $income_statement, $balance_sheet, $cash_flow, $treasury_yield, $latest_price, $daily_data) {
+    private function get_valuation_results($overview, $income_statement, $balance_sheet, $cash_flow, $earnings, $treasury_yield, $latest_price, $daily_data) {
         $valuation_data = [];
         $erp_setting = (float) get_option('jtw_erp_setting', '5.0');
         $erp_decimal = $erp_setting / 100;
         $tax_rate_setting = (float) get_option('jtw_tax_rate_setting', '21.0');
         $tax_rate_decimal = $tax_rate_setting / 100;
         
+        if (!is_wp_error($balance_sheet) && isset($balance_sheet['annualReports'][0]['commonStockSharesOutstanding'])) {
+            $authoritative_shares = (float)$balance_sheet['annualReports'][0]['commonStockSharesOutstanding'];
+            if ($authoritative_shares > 0) {
+                $overview['SharesOutstanding'] = $authoritative_shares;
+            }
+        }
+
         $beta_details = $this->calculate_levered_beta($overview['Symbol'], $balance_sheet, $overview['MarketCapitalization'], $tax_rate_decimal);
         $levered_beta = $beta_details['levered_beta'];
     
@@ -412,7 +421,7 @@ class Journey_To_Wealth_Public {
             }
         } else {
             $dcf_model = new Journey_To_Wealth_DCF_Model($erp_decimal, $levered_beta);
-            $result = $dcf_model->calculate($overview, $income_statement, $balance_sheet, $cash_flow, $treasury_yield, $latest_price, $beta_details);
+            $result = $dcf_model->calculate($overview, $income_statement, $balance_sheet, $cash_flow, $earnings, $treasury_yield, $latest_price, $beta_details);
             if (!is_wp_error($result)) {
                  $valuation_data['DCF Model'] = $result;
             }
@@ -428,7 +437,7 @@ class Journey_To_Wealth_Public {
     
         return $valuation_data;
     }
-
+    
     private function store_and_map_discovered_company($ticker, $industry_name, $sector_name) {
         if (empty($ticker) || empty($industry_name)) {
             return;
@@ -814,22 +823,52 @@ class Journey_To_Wealth_Public {
         return $prefix . $formatted_number;
     }
 
-    private function build_overview_section_html($overview, $quote) {
+    private function build_overview_section_html($overview, $quote, $daily_data) {
         $ticker = $overview['Symbol'] ?? 'N/A';
         $description = $overview['Description'] ?? 'No company description available.';
         $stock_price = !is_wp_error($quote) ? (float)($quote['05. price'] ?? 0) : 0;
         $market_cap = (float)($overview['MarketCapitalization'] ?? 0);
         $shares_outstanding = (float)($overview['SharesOutstanding'] ?? 0);
 
+        $char_limit = 350;
+        $is_long_description = strlen($description) > $char_limit;
+        
         $output = '<div class="jtw-content-section" id="section-overview-content">';
         $output .= '<h4>' . esc_html($ticker) . ' ' . esc_html__('Company Overview', 'journey-to-wealth') . '</h4>';
         $output .= '<div class="jtw-company-overview-grid">';
-        $output .= '<div class="jtw-company-description"><p>' . esc_html($description) . '</p></div>';
+        
+        $output .= '<div class="jtw-overview-main-col">';
+        $output .= '<div class="jtw-company-description">';
+        
+        if ($is_long_description) {
+            $short_text = substr($description, 0, strrpos(substr($description, 0, $char_limit), ' '));
+            $more_text = substr($description, strlen($short_text));
+            $output .= '<p><span class="jtw-description-content">' . esc_html($short_text) . '...</span><span class="jtw-description-more" style="display:none;">' . esc_html($more_text) . '</span> <a href="#" class="jtw-read-more" data-more-text="read more" data-less-text="read less">read more</a></p>';
+        } else {
+            $output .= '<p>' . esc_html($description) . '</p>';
+        }
+        
+        $output .= '</div>';
+        
+        $chart_id = 'chart-overview-price-' . uniqid();
+        $output .= '<div class="jtw-overview-price-chart">';
+        $output .= '<h5>' . esc_html__('Price History (10Y)', 'journey-to-wealth') . '</h5>';
+        $output .= '<div class="jtw-chart-wrapper"><canvas id="' . esc_attr($chart_id) . '"></canvas></div>';
+        
+        $price_data = $this->process_av_price_data($daily_data);
+        $chart_config = ['type' => 'line', 'prefix' => '$', 'colors' => ['#007bff', 'rgba(0, 122, 255, 0.1)']];
+        $output .= "<script type='application/json' class='jtw-chart-data' data-chart-id='" . esc_attr($chart_id) . "' data-chart-type='" . esc_attr($chart_config['type']) . "' data-prefix='" . esc_attr($chart_config['prefix']) . "' data-annual='" . esc_attr(json_encode($price_data)) . "' data-colors='" . esc_attr(json_encode($chart_config['colors'])) . "'></script>";
+        
+        $output .= '</div>';
+        $output .= '</div>';
+
         $output .= '<div class="jtw-company-stats">';
         $output .= $this->create_metric_card('Current Price', $stock_price, '$');
         $output .= $this->create_metric_card('Market Capitalization', $market_cap, '$', '', true);
         $output .= $this->create_metric_card('Shares Outstanding', $shares_outstanding, '', '', true);
-        $output .= '</div></div></div>';
+        $output .= '</div>';
+
+        $output .= '</div></div>';
 
         return $output;
     }
@@ -885,12 +924,11 @@ class Journey_To_Wealth_Public {
         $output .= '<div class="jtw-chart-filter-toggle"><button class="jtw-category-button active" data-category="all">All Charts</button><button class="jtw-category-button" data-category="growth">Growth</button><button class="jtw-category-button" data-category="profitability">Profitability</button><button class="jtw-category-button" data-category="financial_health">Financial Health</button><button class="jtw-category-button" data-category="dividends_capital">Dividends & Capital</button></div></div>';
         $output .= '<div class="jtw-historical-charts-grid" id="' . esc_attr($unique_id) . '">';
         $chart_configs = [
-            'price' => ['title' => 'Price History (10Y)', 'type' => 'line', 'prefix' => '$', 'category' => 'growth', 'colors' => ['#007bff', 'rgba(0, 122, 255, 0.1)']],
             'revenue' => ['title' => 'Revenue', 'type' => 'bar', 'prefix' => '$', 'category' => 'growth', 'colors' => ['#ffc107']],
             'net_income' => ['title' => 'Net Income', 'type' => 'bar', 'prefix' => '$', 'category' => 'profitability', 'colors' => ['#fd7e14']],
             'ebitda' => ['title' => 'EBITDA', 'type' => 'bar', 'prefix' => '$', 'category' => 'profitability', 'colors' => ['#82ca9d']],
             'fcf' => ['title' => 'Free Cash Flow', 'type' => 'bar', 'prefix' => '$', 'category' => 'profitability', 'colors' => ['#20c997']],
-            'cash_and_debt' => ['title' => 'Cash & Debt', 'type' => 'bar', 'prefix' => '$', 'category' => 'financial_health', 'colors' => ['#28a745', '#dc3545']],
+            'cash_and_debt' => ['title' => 'Cash & Debt', 'type' => 'bar', 'prefix' => '$', 'category' => 'financial_health', 'colors' => ['#dc3545', '#28a745']],
             'expenses' => ['title' => 'Expenses', 'type' => 'bar', 'prefix' => '$', 'category' => 'profitability', 'colors' => ['#007bff', '#fd7e14', '#6c757d']],
             'dividend' => ['title' => 'Dividend Per Share', 'type' => 'bar', 'prefix' => '$', 'category' => 'dividends_capital', 'colors' => ['#6f42c1']],
             'shares_outstanding' => ['title' => 'Shares Outstanding', 'type' => 'bar', 'prefix' => '', 'category' => 'dividends_capital', 'colors' => ['#17a2b8']],
@@ -927,30 +965,31 @@ class Journey_To_Wealth_Public {
             $modal_id = 'modal-' . sanitize_key($model_name);
             $output .= '<div class="jtw-valuation-summary-box"><span class="jtw-summary-model-name">' . esc_html($model_name) . '</span><span class="jtw-summary-fair-value">$' . esc_html($result['intrinsic_value_per_share']) . '</span><button class="jtw-modal-trigger" data-modal-target="#' . $modal_id . '">' . esc_html__('View Assumptions', 'journey-to-wealth') . '</button></div>';
             $output .= '<div id="' . $modal_id . '" class="jtw-modal"><div class="jtw-modal-content"><span class="jtw-modal-close">&times;</span>';
-            $output .= $this->build_valuation_assumptions_modal_html($result['calculation_breakdown'], $details);
+            $output .= $this->build_valuation_assumptions_modal_html($result, $details);
             $output .= '</div></div>';
         }
         $output .= '</div><div class="jtw-modal-overlay"></div></div>';
         return $output;
     }
 
-    private function build_valuation_assumptions_modal_html($data, $details) {
+    private function build_valuation_assumptions_modal_html($result, $details) {
+        $data = $result['calculation_breakdown'];
         $ticker = $details['Symbol'] ?? 'the company';
         $model_name = $data['model_name'] ?? 'Valuation';
         $output = '<h4>' . esc_html($model_name) . ' Assumptions for ' . esc_html($ticker) . '</h4>';
         
         switch($model_name) {
-            case 'DCF Model':
-                $output .= $this->build_dcf_modal_content($data, $details);
+            case 'DCF Model (FCFE)':
+                $output .= $this->build_dcf_modal_content($result, $details);
                 break;
             case 'Dividend Discount Model':
-                $output .= $this->build_ddm_modal_content($data, $details);
+                $output .= $this->build_ddm_modal_content($result, $details);
                 break;
             case 'AFFO Model':
-                $output .= $this->build_affo_modal_content($data, $details);
+                $output .= $this->build_affo_modal_content($result, $details);
                 break;
             case 'Excess Return Model':
-                $output .= $this->build_excess_return_modal_content($data, $details);
+                $output .= $this->build_excess_return_modal_content($result, $details);
                 break;
             default:
                 $output .= '<pre>' . print_r($data, true) . '</pre>';
@@ -959,19 +998,24 @@ class Journey_To_Wealth_Public {
         return $output;
     }
 
-    private function build_dcf_modal_content($data, $details) {
+    private function build_dcf_modal_content($result, $details) {
+        $data = $result['calculation_breakdown'];
+        $value_per_share = $result['intrinsic_value_per_share'];
         $discount_calc = $data['discount_rate_calc'];
         $beta_details = $discount_calc['beta_details'];
-        $value_per_share = $data['intrinsic_value_per_share'];
         $current_price = $data['current_price'];
         $discount_pct = ($value_per_share > 0 && $current_price > 0) ? (($value_per_share - $current_price) / $current_price) * 100 : 0;
+        
+        $cash_flow_type = 'FCFE';
+        $discount_rate_label = 'Discount Rate (Cost of Equity)';
+        $total_value_label = 'Total Equity Value';
     
         // Table 1: Main Valuation Inputs
         $output = '<h4>Valuation</h4>';
         $output .= '<table class="jtw-modal-table"><thead><tr><th>Data Point</th><th>Source</th><th>Value</th></tr></thead><tbody>';
-        $output .= '<tr><td>Valuation Model</td><td></td><td>2 Stage Free Cash Flow to Equity</td></tr>';
+        $output .= '<tr><td>Valuation Model</td><td></td><td>2 Stage ' . esc_html($cash_flow_type) . '</td></tr>';
         $output .= '<tr><td>Levered Free Cash Flow</td><td>Historical Growth</td><td>See below</td></tr>';
-        $output .= '<tr><td>Discount Rate (Cost of Equity)</td><td>See below</td><td>' . number_format($data['inputs']['cost_of_equity'] * 100, 2) . '%</td></tr>';
+        $output .= '<tr><td>' . esc_html($discount_rate_label) . '</td><td>See below</td><td>' . number_format($data['inputs']['discount_rate'] * 100, 2) . '%</td></tr>';
         $output .= '<tr><td>Perpetual Growth Rate</td><td>' . esc_html($discount_calc['risk_free_rate_source']) . '</td><td>' . number_format($data['inputs']['terminal_growth_rate'] * 100, 2) . '%</td></tr>';
         $output .= '</tbody></table>';
 
@@ -980,7 +1024,7 @@ class Journey_To_Wealth_Public {
         $output .= '<table class="jtw-modal-table"><thead><tr><th>Data Point</th><th>Calculation/ Source</th><th>Result</th></tr></thead><tbody>';
         $output .= '<tr><td>Risk-Free Rate</td><td>' . esc_html($discount_calc['risk_free_rate_source']) . '</td><td>' . number_format($discount_calc['risk_free_rate'] * 100, 2) . '%</td></tr>';
         $output .= '<tr><td>Equity Risk Premium</td><td>' . esc_html($discount_calc['erp_source']) . '</td><td>' . number_format($discount_calc['equity_risk_premium'] * 100, 2) . '%</td></tr>';
-        $output .= '<tr><td><strong>Discount Rate/ Cost of Equity</strong></td><td><strong>' . esc_html($discount_calc['cost_of_equity_calc']) . '</strong></td><td><strong>' . number_format($data['inputs']['cost_of_equity'] * 100, 2) . '%</strong></td></tr>';
+        $output .= '<tr><td><strong>Discount Rate/ Cost of Equity</strong></td><td><strong>' . esc_html($discount_calc['cost_of_equity_calc']) . '</strong></td><td><strong>' . number_format($data['inputs']['discount_rate'] * 100, 2) . '%</strong></td></tr>';
         $output .= '</tbody></table>';
 
         // Table for Levered Beta Calculation
@@ -996,25 +1040,25 @@ class Journey_To_Wealth_Public {
         }
         
         // Table 3: FCFE Projections
-        $output .= '<h4>Free Cash Flow to Equity Forecast</h4>';
-        $output .= '<table class="jtw-modal-table"><thead><tr><th></th><th>FCFE (USD)</th><th>Source</th><th>Present Value Discounted (@' . number_format($data['inputs']['cost_of_equity'] * 100, 2) . '%)</th></tr></thead><tbody>';
+        $output .= '<h4>' . esc_html($cash_flow_type) . ' Forecast</h4>';
+        $output .= '<table class="jtw-modal-table"><thead><tr><th></th><th>' . esc_html($cash_flow_type) . ' (USD)</th><th>Source</th><th>Present Value Discounted (@' . number_format($data['inputs']['discount_rate'] * 100, 2) . '%)</th></tr></thead><tbody>';
         foreach ($data['projection_table'] as $row) {
             $output .= '<tr>';
             $output .= '<td>' . esc_html($row['year']) . '</td>';
-            $output .= '<td>' . $this->format_large_number($row['fcfe'], '$') . '</td>';
-            $output .= '<td>Est @ ' . number_format(($row['fcfe'] / ($data['projection_table'][0]['fcfe'] / (1 + $data['inputs']['initial_growth_rate'])) - 1) * 100, 2) . '%</td>';
-            $output .= '<td>' . $this->format_large_number($row['pv_fcfe'], '$') . '</td>';
+            $output .= '<td>' . $this->format_large_number($row['cf'], '$') . '</td>';
+            $output .= '<td>Est @ ' . number_format(($row['cf'] / ($data['projection_table'][0]['cf'] / (1 + $data['inputs']['initial_growth_rate'])) - 1) * 100, 2) . '%</td>';
+            $output .= '<td>' . $this->format_large_number($row['pv_cf'], '$') . '</td>';
             $output .= '</tr>';
         }
-        $output .= '<tr><td colspan="3"><strong>Present value of next 10 years cash flows</strong></td><td><strong>' . $this->format_large_number($data['sum_of_pv_fcfs'], '$') . '</strong></td></tr>';
+        $output .= '<tr><td colspan="3"><strong>Present value of next 10 years cash flows</strong></td><td><strong>' . $this->format_large_number($data['sum_of_pv_cfs'], '$') . '</strong></td></tr>';
         $output .= '</tbody></table>';
 
         // Table 4 & 5: Final Valuation
         $output .= '<h4>Final Valuation</h4>';
         $output .= '<table class="jtw-modal-table"><thead><tr><th></th><th>Calculation</th><th>Result</th></tr></thead><tbody>';
-        $output .= '<tr><td>Terminal Value</td><td>FCF<sub>' . end($data['projection_table'])['year'] . '</sub> &times; (1 + g) &divide; (Discount Rate - g)<br>= ' . $this->format_large_number(end($data['projection_table'])['fcfe'], '$') . ' &times; (1 + ' . number_format($data['inputs']['terminal_growth_rate'] * 100, 2) . '%) &divide; (' . number_format($data['inputs']['cost_of_equity'] * 100, 2) . '% - ' . number_format($data['inputs']['terminal_growth_rate'] * 100, 2) . '%)</td><td>' . $this->format_large_number($data['terminal_value'], '$') . '</td></tr>';
-        $output .= '<tr><td>Present Value of Terminal Value</td><td>Terminal Value &divide; (1 + r)<sup>10</sup><br>' . $this->format_large_number($data['terminal_value'], '$') . ' &divide; (1 + ' . number_format($data['inputs']['cost_of_equity'] * 100, 2) . '%)<sup>10</sup></td><td>' . $this->format_large_number($data['pv_of_terminal_value'], '$') . '</td></tr>';
-        $output .= '<tr><td><strong>Total Equity Value</strong></td><td><strong>Present value of next 10 years cash flows + PV of Terminal Value</strong><br>= ' . $this->format_large_number($data['sum_of_pv_fcfs'], '$') . ' + ' . $this->format_large_number($data['pv_of_terminal_value'], '$') . '</td><td><strong>' . $this->format_large_number($data['total_equity_value'], '$') . '</strong></td></tr>';
+        $output .= '<tr><td>Terminal Value</td><td>' . esc_html($cash_flow_type) . '<sub>' . end($data['projection_table'])['year'] . '</sub> &times; (1 + g) &divide; (Discount Rate - g)<br>= ' . $this->format_large_number(end($data['projection_table'])['cf'], '$') . ' &times; (1 + ' . number_format($data['inputs']['terminal_growth_rate'] * 100, 2) . '%) &divide; (' . number_format($data['inputs']['discount_rate'] * 100, 2) . '% - ' . number_format($data['inputs']['terminal_growth_rate'] * 100, 2) . '%)</td><td>' . $this->format_large_number($data['terminal_value'], '$') . '</td></tr>';
+        $output .= '<tr><td>Present Value of Terminal Value</td><td>Terminal Value &divide; (1 + r)<sup>10</sup><br>' . $this->format_large_number($data['terminal_value'], '$') . ' &divide; (1 + ' . number_format($data['inputs']['discount_rate'] * 100, 2) . '%)<sup>10</sup></td><td>' . $this->format_large_number($data['pv_of_terminal_value'], '$') . '</td></tr>';
+        $output .= '<tr><td><strong>' . esc_html($total_value_label) . '</strong></td><td><strong>Present value of next 10 years cash flows + PV of Terminal Value</strong><br>= ' . $this->format_large_number($data['sum_of_pv_cfs'], '$') . ' + ' . $this->format_large_number($data['pv_of_terminal_value'], '$') . '</td><td><strong>' . $this->format_large_number($data['total_equity_value'], '$') . '</strong></td></tr>';
         $output .= '<tr><td><strong>Equity Value per Share (USD)</strong></td><td><strong>Total Equity Value / Shares Outstanding</strong><br>= ' . $this->format_large_number($data['total_equity_value'], '$') . ' / ' . number_format($data['shares_outstanding']) . '</td><td><strong>$' . number_format($value_per_share, 2) . '</strong></td></tr>';
         $output .= '</tbody></table>';
 
@@ -1028,8 +1072,9 @@ class Journey_To_Wealth_Public {
         return $output;
     }
 
-    private function build_ddm_modal_content($data, $details) {
-        $value_per_share = $data['intrinsic_value_per_share'];
+    private function build_ddm_modal_content($result, $details) {
+        $data = $result['calculation_breakdown'];
+        $value_per_share = $result['intrinsic_value_per_share'];
         $current_price = $data['current_price'];
         $discount_pct = ($value_per_share > 0) ? (($value_per_share - $current_price) / $current_price) * 100 : 0;
 
@@ -1049,10 +1094,11 @@ class Journey_To_Wealth_Public {
         return $output;
     }
 
-    private function build_affo_modal_content($data, $details) {
+    private function build_affo_modal_content($result, $details) {
+        $data = $result['calculation_breakdown'];
+        $value_per_share = $result['intrinsic_value_per_share'];
         $discount_calc = $data['discount_rate_calc'];
         $beta_details = $discount_calc['beta_details'];
-        $value_per_share = $data['intrinsic_value_per_share'];
         $current_price = $data['current_price'];
         $discount_pct = ($value_per_share > 0) ? (($value_per_share - $current_price) / $value_per_share) * 100 : 0;
     
@@ -1118,10 +1164,11 @@ class Journey_To_Wealth_Public {
         return $output;
     }
 
-    private function build_excess_return_modal_content($data, $details) {
+    private function build_excess_return_modal_content($result, $details) {
+        $data = $result['calculation_breakdown'];
+        $value_per_share = $result['intrinsic_value_per_share'];
         $discount_calc = $data['discount_rate_calc'];
         $beta_details = $discount_calc['beta_details'];
-        $value_per_share = $data['intrinsic_value_per_share'];
         $current_price = $data['current_price'];
         $discount_pct = ($value_per_share > 0) ? (($value_per_share - $current_price) / $value_per_share) * 100 : 0;
     
@@ -1151,7 +1198,7 @@ class Journey_To_Wealth_Public {
                  $output .= '<tr><td>Re-levered Beta</td><td>' . esc_html($beta_details['relevered_beta_calc']) . '</td><td>' . number_format($beta_details['unconstrained_levered_beta'], 3) . '</td></tr>';
             }
             $output .= '<tr><td>Levered Beta</td><td>Levered Beta limited to 0.8 to 2.0<br>(practical range for a stable firm)</td><td>' . number_format($discount_calc['beta'], 3) . '</td></tr>';
-            $output .= '</tbody></table>';
+        $output .= '</tbody></table>';
         }
 
         // Table 3: Excess Returns Calculation
@@ -1159,7 +1206,7 @@ class Journey_To_Wealth_Public {
         $output .= '<table class="jtw-modal-table"><thead><tr><th></th><th>Calculation</th><th>Result</th></tr></thead><tbody>';
         $output .= '<tr><td>Excess Returns</td><td>(Return on Equity - Cost of Equity) x (Book Value of Equity per share)<br>= (' . number_format($data['roe'] * 100, 1) . '% - ' . number_format($data['cost_of_equity'] * 100, 2) . '%) x $' . number_format($data['current_book_value_per_share'], 2) . '</td><td>$' . number_format($data['excess_return_per_share'], 2) . '</td></tr>';
         $output .= '<tr><td>Terminal Value of Excess Returns</td><td>Excess Returns / (Cost of Equity - Expected Growth Rate)<br>= $' . number_format($data['excess_return_per_share'], 2) . ' / (' . number_format($data['cost_of_equity'] * 100, 2) . '% - ' . number_format($data['terminal_growth_rate'] * 100, 2) . '%)</td><td>$' . number_format($data['terminal_value_of_excess_returns_per_share'], 2) . '</td></tr>';
-        $output .= '<tr><td><strong>Value of Equity</strong></td><td><strong>Book Value per share + Terminal Value of Excess Returns</strong><br><strong>$' . number_format($data['current_book_value_per_share'], 2) . ' + $' . number_format($data['terminal_value_of_excess_returns_per_share'], 2) . '</strong></td><td><strong>$' . number_format($data['intrinsic_value_per_share'], 2) . '</strong></td></tr>';
+        $output .= '<tr><td><strong>Value of Equity</strong></td><td><strong>Book Value per share + Terminal Value of Excess Returns</strong><br><strong>$' . number_format($data['current_book_value_per_share'], 2) . ' + $' . number_format($data['terminal_value_of_excess_returns_per_share'], 2) . '</strong></td><td><strong>$' . number_format($value_per_share, 2) . '</strong></td></tr>';
         $output .= '</tbody></table>';
 
         // Table 4: Discount to Share Price

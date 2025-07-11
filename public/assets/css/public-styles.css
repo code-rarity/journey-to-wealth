@@ -91,7 +91,6 @@
 .jtw-header-search-results li { padding: 12px 15px; cursor: pointer; border-radius: 6px; }
 .jtw-header-search-results li:hover { background-color: #f1f3f5; }
 
-/* --- **NEW** SWS Style Search Result Item --- */
 .jtw-header-result-item {
     display: flex;
     align-items: center;
@@ -174,7 +173,6 @@
 .jtw-anchor-nav ul li a.active { background-color: #e7f3ff; color: var(--jtw-primary-blue); font-weight: 600; border-left-color: var(--jtw-primary-blue); }
 .jtw-content-main { flex: 1; min-width: 0; }
 
-/* **UPDATED**: Placeholders and loaded content sections */
 .jtw-content-section-placeholder {
     min-height: 400px; /* Prevents page jump */
     margin-bottom: 25px;
@@ -218,6 +216,35 @@
 .jtw-company-stats .jtw-metric-card { text-align: left; padding: 15px; background-color: var(--jtw-content-bg); }
 .jtw-company-stats .jtw-metric-title { font-size: 0.85em; text-transform: none; letter-spacing: 0; color: var(--jtw-text-light); }
 .jtw-company-stats .jtw-metric-value { font-size: 1.4em; }
+
+/* **NEW**: Styles for Overview Section Refactor */
+.jtw-overview-main-col {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+}
+.jtw-read-more {
+    display: inline-block;
+    margin-left: 4px;
+    font-weight: 600;
+    color: var(--jtw-primary-blue);
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+.jtw-read-more:hover {
+    text-decoration: underline;
+}
+.jtw-overview-price-chart h5 {
+    text-align: center;
+    margin-top: 0;
+    margin-bottom: 15px;
+    font-size: 1em;
+    color: var(--jtw-text-dark);
+}
+.jtw-overview-price-chart .jtw-chart-wrapper {
+    height: 350px;
+}
 
 .jtw-results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
 .jtw-metric-card { background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid var(--jtw-border-color-light); text-align: center; }
@@ -465,11 +492,11 @@
     z-index: 10001;
     display: none;
     width: 90%;
-    max-width: 1000px; /* **UPDATED** */
+    max-width: 1000px;
     box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
 .jtw-modal-content {
-    max-height: 80vh; 
+    max-height: 60vh; 
     overflow-y: auto; 
 }
 .jtw-modal-content h4 {
@@ -512,9 +539,7 @@
         aspect-ratio: 1 / 1;
     }
 
-    .jtw-valuation-chart-container {
-        aspect-ratio: 3 / 1;
-    }
+
 
     .jtw-header-result-item {
         gap: 12px;
@@ -553,11 +578,6 @@
     max-width: 480px;
 }
 
-/* --- **UPDATED** Styles for Data Assumptions Modal --- */
-.jtw-modal-content {
-    max-height: 80vh; 
-    overflow-y: auto; 
-}
 .jtw-modal-table {
     width: 100%;
     border-collapse: collapse;
@@ -587,7 +607,6 @@
     color: var(--jtw-text-dark);
 }
 
-/* **NEW**: Loading Spinner */
 .jtw-loading-spinner {
     border: 5px solid var(--jtw-page-bg);
     border-top: 5px solid var(--jtw-primary-blue);
@@ -602,7 +621,6 @@
     100% { transform: rotate(360deg); }
 }
 
-/* **NEW**: Paywall Styles */
 .jtw-paywall {
     width: 100%;
     padding: 30px;
