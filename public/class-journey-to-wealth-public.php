@@ -103,6 +103,7 @@ class Journey_To_Wealth_Public {
             $output .= '<div class="jtw-content-container">';
             $output .= '<nav class="jtw-anchor-nav"><ul>';
             $output .= '<li><a href="#section-overview" class="jtw-anchor-link active">' . esc_html__('Company Overview', 'journey-to-wealth') . '</a></li>';
+            $output .= '<li><a href="#section-historical-data" class="jtw-anchor-link">' . esc_html__('Historical Data', 'journey-to-wealth') . '</a></li>';
             $output .= '<li><a href="#section-past-performance" class="jtw-anchor-link">' . esc_html__('Past Performance', 'journey-to-wealth') . '</a></li>';
             $output .= '<li><a href="#section-peg-pegy-ratios" class="jtw-anchor-link">' . esc_html__('PEG/PEGY Ratios', 'journey-to-wealth') . '</a></li>';
             $output .= '<li><a href="#section-metric-valuation" class="jtw-anchor-link">' . esc_html__('Metric Valuation', 'journey-to-wealth') . '</a></li>';
@@ -112,6 +113,7 @@ class Journey_To_Wealth_Public {
             $output .= '<main class="jtw-content-main">';
             $output .= '<div id="jtw-currency-notice-placeholder"></div>';
             $output .= '<div id="section-overview" class="jtw-content-section-placeholder" data-section="overview"></div>';
+            $output .= '<div id="section-historical-data" class="jtw-content-section-placeholder" data-section="historical-data"></div>';
             $output .= '<div id="section-past-performance" class="jtw-content-section-placeholder" data-section="past-performance"></div>';
             $output .= '<div id="section-peg-pegy-ratios" class="jtw-content-section-placeholder" data-section="peg-pegy-ratios"></div>';
             $output .= '<div id="section-metric-valuation" class="jtw-content-section-placeholder" data-section="metric-valuation"></div>';
@@ -275,7 +277,7 @@ class Journey_To_Wealth_Public {
         if(!defined('MEPR_VERSION') && file_exists(WP_PLUGIN_DIR . '/memberpress/memberpress.php')) {
             require_once(WP_PLUGIN_DIR . '/memberpress/memberpress.php');
         }
-        $memberpress_rules = [ 'overview' => 0, 'past-performance' => 0, 'peg-pegy-ratios' => 2271, 'metric-valuation' => 2271, 'intrinsic-valuation' => 2273 ];
+        $memberpress_rules = [ 'overview' => 0, 'historical-data' => 0, 'past-performance' => 0, 'peg-pegy-ratios' => 2271, 'metric-valuation' => 2271, 'intrinsic-valuation' => 2273 ];
         $required_rule_id = $memberpress_rules[$section] ?? null;
         $has_access = false;
         $user_id = get_current_user_id();
@@ -316,8 +318,13 @@ class Journey_To_Wealth_Public {
             case 'overview':
                 if (!is_wp_error($company_data['overview']) && !empty($company_data['overview']['Symbol'])) {
                     $this->store_and_map_discovered_company($ticker, $company_data['overview']['Industry'], $company_data['overview']['Sector']);
-                    $html = $this->build_overview_section_html($company_data['overview'], $company_data['quote'], $company_data['daily_data']);
+                    $html = $this->build_overview_section_html($company_data['overview'], $company_data['quote']);
                 }
+                break;
+
+            case 'historical-data':
+                $table_data = $this->process_historical_table_data($company_data);
+                $html = $this->build_historical_data_section_html($table_data);
                 break;
 
             case 'past-performance':
@@ -690,7 +697,8 @@ class Journey_To_Wealth_Public {
             elseif (isset($dataset[$earnings_key])) { foreach ($dataset[$earnings_key] as $report) { $all_dates[] = $report['fiscalDateEnding']; } }
         }
         $unique_dates = array_unique($all_dates); sort($unique_dates);
-        $limit = ($type === 'annual') ? -10 : -10; $limited_dates = array_slice($unique_dates, $limit); 
+        $limit = ($type === 'annual') ? -20 : -80; // Use 20 years for annual, 80 quarters for quarterly
+        $limited_dates = array_slice($unique_dates, $limit); 
         
         $final_labels = [];
         if ($type === 'annual') {
@@ -807,7 +815,7 @@ class Journey_To_Wealth_Public {
     private function process_av_price_data($daily_data) {
         $data = ['labels' => [], 'data' => []];
         if (is_wp_error($daily_data) || !isset($daily_data['Time Series (Daily)'])) return $data;
-        $time_series = array_slice($daily_data['Time Series (Daily)'], 0, 252 * 10, true);
+        $time_series = array_slice($daily_data['Time Series (Daily)'], 0, 252 * 20, true); // 20 years of daily data
         $time_series = array_reverse($time_series, true);
         foreach($time_series as $date => $day_data) { $data['labels'][] = $date; $data['data'][] = (float)$day_data['4. close']; }
         return $data;
@@ -823,7 +831,7 @@ class Journey_To_Wealth_Public {
         return $prefix . $formatted_number;
     }
 
-    private function build_overview_section_html($overview, $quote, $daily_data) {
+    private function build_overview_section_html($overview, $quote) {
         $ticker = $overview['Symbol'] ?? 'N/A';
         $description = $overview['Description'] ?? 'No company description available.';
         $stock_price = !is_wp_error($quote) ? (float)($quote['05. price'] ?? 0) : 0;
@@ -847,17 +855,6 @@ class Journey_To_Wealth_Public {
         } else {
             $output .= '<p>' . esc_html($description) . '</p>';
         }
-        
-        $output .= '</div>';
-        
-        $chart_id = 'chart-overview-price-' . uniqid();
-        $output .= '<div class="jtw-overview-price-chart">';
-        $output .= '<h5>' . esc_html__('Price History (10Y)', 'journey-to-wealth') . '</h5>';
-        $output .= '<div class="jtw-chart-wrapper"><canvas id="' . esc_attr($chart_id) . '"></canvas></div>';
-        
-        $price_data = $this->process_av_price_data($daily_data);
-        $chart_config = ['type' => 'line', 'prefix' => '$', 'colors' => ['#007bff', 'rgba(0, 122, 255, 0.1)']];
-        $output .= "<script type='application/json' class='jtw-chart-data' data-chart-id='" . esc_attr($chart_id) . "' data-chart-type='" . esc_attr($chart_config['type']) . "' data-prefix='" . esc_attr($chart_config['prefix']) . "' data-annual='" . esc_attr(json_encode($price_data)) . "' data-colors='" . esc_attr(json_encode($chart_config['colors'])) . "'></script>";
         
         $output .= '</div>';
         $output .= '</div>';
@@ -1219,7 +1216,6 @@ class Journey_To_Wealth_Public {
         return $output;
     }
 
-
     private function create_metric_card($title, $value, $prefix = '', $custom_class = '', $use_large_number_format = false) {
         $formatted_value = 'N/A';
         if (is_numeric($value)) {
@@ -1234,5 +1230,191 @@ class Journey_To_Wealth_Public {
             }
         } elseif (!empty($value)) { $formatted_value = $value; }
         return '<div class="jtw-metric-card ' . esc_attr($custom_class) . '"><h3 class="jtw-metric-title">' . esc_html($title) . '</h3><p class="jtw-metric-value">' . esc_html($formatted_value) . '</p></div>';
+    }
+
+    private function process_historical_table_data($company_data) {
+        $all_data = [];
+        $current_year = date('Y');
+    
+        // 1. Get all annual report dates to create a master list of years
+        $all_years = [];
+        $report_keys = ['income_statement', 'balance_sheet', 'cash_flow', 'earnings'];
+        foreach ($report_keys as $key) {
+            if (!is_wp_error($company_data[$key]) && isset($company_data[$key]['annualReports'])) {
+                foreach ($company_data[$key]['annualReports'] as $report) {
+                    $year = substr($report['fiscalDateEnding'], 0, 4);
+                    if ($year < $current_year) {
+                        $all_years[$year] = true;
+                    }
+                }
+            }
+        }
+        if (isset($company_data['earnings']['annualEarnings'])) {
+             foreach ($company_data['earnings']['annualEarnings'] as $report) {
+                $year = substr($report['fiscalDateEnding'], 0, 4);
+                if ($year < $current_year) {
+                    $all_years[$year] = true;
+                }
+            }
+        }
+        
+        $years = array_keys($all_years);
+        sort($years); // Sort years in ascending order for chronological display
+        $years = array_slice($years, -20); // Limit to the last 20 years
+    
+        // 2. Pre-process daily price data to find annual high/low
+        $prices_by_year = [];
+        if (!is_wp_error($company_data['daily_data']) && isset($company_data['daily_data']['Time Series (Daily)'])) {
+            foreach ($company_data['daily_data']['Time Series (Daily)'] as $date => $day_data) {
+                $year = substr($date, 0, 4);
+                if (!isset($prices_by_year[$year])) {
+                    $prices_by_year[$year] = ['high' => -INF, 'low' => INF];
+                }
+                $high = (float)$day_data['2. high'];
+                $low = (float)$day_data['3. low'];
+                if ($high > $prices_by_year[$year]['high']) {
+                    $prices_by_year[$year]['high'] = $high;
+                }
+                if ($low < $prices_by_year[$year]['low']) {
+                    $prices_by_year[$year]['low'] = $low;
+                }
+            }
+        }
+    
+        // 3. Create a map for each financial statement for quick lookup
+        $income_map = [];
+        if (!is_wp_error($company_data['income_statement']) && isset($company_data['income_statement']['annualReports'])) {
+            foreach ($company_data['income_statement']['annualReports'] as $report) {
+                $income_map[substr($report['fiscalDateEnding'], 0, 4)] = $report;
+            }
+        }
+    
+        $balance_map = [];
+        if (!is_wp_error($company_data['balance_sheet']) && isset($company_data['balance_sheet']['annualReports'])) {
+            foreach ($company_data['balance_sheet']['annualReports'] as $report) {
+                $balance_map[substr($report['fiscalDateEnding'], 0, 4)] = $report;
+            }
+        }
+    
+        $cashflow_map = [];
+        if (!is_wp_error($company_data['cash_flow']) && isset($company_data['cash_flow']['annualReports'])) {
+            foreach ($company_data['cash_flow']['annualReports'] as $report) {
+                $cashflow_map[substr($report['fiscalDateEnding'], 0, 4)] = $report;
+            }
+        }
+    
+        $earnings_map = [];
+        if (isset($company_data['earnings']['annualEarnings'])) {
+            foreach ($company_data['earnings']['annualEarnings'] as $report) {
+                $earnings_map[substr($report['fiscalDateEnding'], 0, 4)] = $report;
+            }
+        }
+
+        // 4. Populate the data for each year
+        foreach ($years as $year) {
+            $income_report = $income_map[$year] ?? [];
+            $balance_report = $balance_map[$year] ?? [];
+            $cashflow_report = $cashflow_map[$year] ?? [];
+            $earnings_report = $earnings_map[$year] ?? [];
+            $price_data = $prices_by_year[$year] ?? ['high' => null, 'low' => null];
+    
+            $shares = (float)($balance_report['commonStockSharesOutstanding'] ?? 0);
+            $revenue = (float)($income_report['totalRevenue'] ?? 0);
+            $eps = (float)($earnings_report['reportedEPS'] ?? 0);
+            $op_cash_flow = (float)($cashflow_report['operatingCashflow'] ?? 0);
+            $capex = (float)($cashflow_report['capitalExpenditures'] ?? 0);
+            $fcf = $op_cash_flow - abs($capex);
+    
+            $all_data[$year] = [
+                'year' => $year,
+                'price_high' => $price_data['high'] === -INF ? null : $price_data['high'],
+                'price_low' => $price_data['low'] === INF ? null : $price_data['low'],
+                'revenue_ps' => $shares > 0 ? $revenue / $shares : 0,
+                'eps' => $eps,
+                'cash_flow_ps' => $shares > 0 ? $fcf / $shares : 0,
+                'book_value_ps' => $shares > 0 ? (float)($balance_report['totalShareholderEquity'] ?? 0) / $shares : 0,
+                'shares_outstanding' => $shares,
+            ];
+        }
+    
+        return array_values($all_data); // Return as a simple array for JSON encoding
+    }
+
+    private function build_historical_data_section_html($table_data) {
+        $output = '<div class="jtw-content-section" id="section-historical-data-content">';
+        $output .= '<h4>' . esc_html__('Historical Financial Data', 'journey-to-wealth') . '</h4>';
+    
+        // Combined Chart and Table Wrapper
+        $output .= '<div class="jtw-historical-combined-wrapper">';
+        $output .= '<div class="jtw-historical-inner-wrapper">';
+    
+        // Chart Container
+        $chart_id = 'jtw-historical-chart-' . uniqid();
+        $output .= '<div class="jtw-historical-chart-container">';
+        $output .= '<canvas id="' . esc_attr($chart_id) . '"></canvas>';
+        $output .= '</div>';
+    
+        // Data Table
+        $output .= '<div class="jtw-historical-table-wrapper">';
+        $output .= '<table class="jtw-historical-table">';
+        
+        // Define the rows for the pivoted table
+        $metrics = [
+            'price_high' => 'Price High',
+            'price_low' => 'Price Low',
+            'revenue_ps' => 'Revenue/Share',
+            'eps' => 'EPS',
+            'cash_flow_ps' => 'FCF/Share',
+            'book_value_ps' => 'Book Value/Share',
+            'shares_outstanding' => 'Shares (M)',
+        ];
+    
+        // Table Header (Years)
+        $output .= '<thead><tr><th>Metric</th>';
+        foreach ($table_data as $data_point) {
+            $output .= '<th>' . esc_html($data_point['year']) . '</th>';
+        }
+        $output .= '</tr></thead>';
+    
+        // Table Body (Metrics as rows)
+        $output .= '<tbody>';
+        foreach ($metrics as $key => $label) {
+            $output .= '<tr>';
+            $output .= '<td>' . esc_html($label) . '</td>'; // First cell is the metric label
+            foreach ($table_data as $data_point) {
+                $value = $data_point[$key] ?? 'N/A';
+                $formatted_value = 'N/A';
+                if (is_numeric($value)) {
+                    switch ($key) {
+                        case 'shares_outstanding':
+                            $formatted_value = number_format($value / 1e6, 2);
+                            break;
+                        case 'price_high':
+                        case 'price_low':
+                            $formatted_value = ($value > 0) ? '$' . number_format($value, 2) : 'N/A';
+                            break;
+                        default:
+                            $formatted_value = '$' . number_format($value, 2);
+                    }
+                }
+                $output .= '<td>' . esc_html($formatted_value) . '</td>';
+            }
+            $output .= '</tr>';
+        }
+        $output .= '</tbody>';
+    
+        $output .= '</table>';
+        $output .= '</div>'; // End table-wrapper
+        
+        $output .= '</div>'; // End inner-wrapper
+        $output .= '</div>'; // End combined-wrapper
+    
+        // Pass data to JS
+        $output .= "<script type='application/json' id='jtw-historical-data-json' data-chart-id='" . esc_attr($chart_id) . "'>";
+        $output .= json_encode($table_data);
+        $output .= "</script>";
+    
+        $output .= '</div>';
+        return $output;
     }
 }

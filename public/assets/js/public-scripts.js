@@ -4,6 +4,7 @@
  * This script powers:
  * 1. The header lookup form, which handles live search and redirects to the analysis page.
  * 2. The main analyzer page, which now uses IntersectionObserver to lazy-load section content.
+ * 3. The new Historical Data "Value Line" style chart.
  *
  * @link       https://example.com/journey-to-wealth/
  * @since      1.0.0
@@ -410,83 +411,160 @@
     }
 
     function initializeOverviewChart($container) {
-        const $chartScript = $container.find('.jtw-overview-price-chart .jtw-chart-data');
-        if (!$chartScript.length) return;
+        // This function is now empty as the chart was removed from the overview section.
+    }
 
-        const chartId = $chartScript.data('chart-id');
-        const chartType = $chartScript.data('chart-type');
-        const prefix = $chartScript.data('prefix');
-        let priceData;
+    function initializeHistoricalDataSection($container) {
+        const $dataScript = $container.find('#jtw-historical-data-json');
+        if (!$dataScript.length) return;
+    
+        const chartId = $dataScript.data('chart-id');
+        const ctx = document.getElementById(chartId);
+        const $table = $container.find('.jtw-historical-table');
+        const $innerWrapper = $container.find('.jtw-historical-inner-wrapper');
 
+        if (!ctx || !$table.length || !$innerWrapper.length) {
+             console.error("Historical data chart/table elements not found.");
+             return;
+        }
+    
+        let historicalData;
         try {
-            priceData = JSON.parse($chartScript.attr('data-annual'));
+            historicalData = JSON.parse($dataScript.html());
         } catch (e) {
-            console.error("Failed to parse price data for overview chart:", chartId, e);
+            console.error("Failed to parse historical data JSON:", e);
             return;
         }
-
-        let colors = ['#007bff', 'rgba(0, 122, 255, 0.1)'];
-        const colorsAttr = $chartScript.attr('data-colors');
-        if (colorsAttr) {
-            try {
-                const parsedColors = JSON.parse(colorsAttr);
-                if(Array.isArray(parsedColors) && parsedColors.length > 0) {
-                    colors = parsedColors;
-                }
-            } catch (e) { /* ignore */ }
+    
+        if (!historicalData || historicalData.length === 0) {
+            $container.find('.jtw-historical-combined-wrapper').html('<p>No historical data available to display.</p>');
+            return;
         }
+    
+        const labels = historicalData.map(d => d.year);
+        
+        // --- Dynamic Width Calculation ---
+        const firstColumnWidth = $table.find('th:first-child').outerWidth();
+        const dataColumnWidth = 110; // A wider width for data columns
+        const totalWidth = firstColumnWidth + (labels.length * dataColumnWidth);
+        $innerWrapper.css('width', totalWidth + 'px');
+        // --- End Dynamic Width Calculation ---
 
-        const ctx = document.getElementById(chartId);
-        if (!ctx) return;
-
-        const config = {
-            type: 'line',
+        const chart = new Chart(ctx, {
+            type: 'bar',
             data: {
-                labels: priceData.labels,
-                datasets: [{
-                    label: 'Price',
-                    data: priceData.data,
-                    borderColor: colors[0],
-                    backgroundColor: colors[1],
-                    fill: true,
-                    pointRadius: 0,
-                    pointHoverRadius: 4,
-                    tension: 0.1
-                }]
+                labels: labels,
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'Price Range (High-Low)',
+                        data: historicalData.map(d => (d.price_low && d.price_high) ? [d.price_low, d.price_high] : [null, null]),
+                        backgroundColor: 'rgba(0, 122, 255, 0.2)',
+                        borderColor: 'rgba(0, 122, 255, 0.5)',
+                        borderWidth: 1,
+                        yAxisID: 'yPrice',
+                        barPercentage: 0.5,
+                        categoryPercentage: 0.7,
+                        borderSkipped: false
+                    },
+                    {
+                        type: 'line',
+                        label: 'EPS',
+                        data: historicalData.map(d => d.eps),
+                        borderColor: '#28a745',
+                        backgroundColor: '#28a745',
+                        yAxisID: 'yMetrics',
+                        tension: 0.1,
+                        pointRadius: 3
+                    },
+                    {
+                        type: 'line',
+                        label: 'Revenue/Share',
+                        data: historicalData.map(d => d.revenue_ps),
+                        borderColor: '#ffc107',
+                        backgroundColor: '#ffc107',
+                        yAxisID: 'yMetrics',
+                        tension: 0.1,
+                        pointRadius: 3
+                    }
+                ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                layout: {
+                    padding: {
+                        left: firstColumnWidth 
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            display: false 
+                        },
+                        grid: {
+                            display: false
+                        }
+                    },
+                    yPrice: {
+                        type: 'logarithmic',
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Price (Log Scale)'
+                        },
+                        ticks: {
+                            callback: function(value, index, values) {
+                                if (value === 1 || value === 10 || value === 100 || value === 1000 || value === 10000 || value === 100000) {
+                                    return '$' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    yMetrics: {
+                        type: 'linear',
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Per Share Metrics'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        ticks: {
+                             callback: function(value, index, values) {
+                                return '$' + value.toFixed(2);
+                            }
+                        }
+                    }
+                },
                 plugins: {
-                    legend: { display: false },
+                    legend: {
+                        position: 'bottom'
+                    },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
                                 let label = context.dataset.label || '';
-                                if (label) { label += ': '; }
-                                if (context.parsed.y !== null) {
-                                    label += prefix + context.parsed.y.toFixed(2);
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.dataset.type === 'bar' && Array.isArray(context.raw)) {
+                                     label += '$' + context.raw[0].toFixed(2) + ' - $' + context.raw[1].toFixed(2);
+                                } else if (context.parsed.y !== null) {
+                                    label += '$' + context.parsed.y.toFixed(2);
                                 }
                                 return label;
                             }
                         }
                     }
-                },
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: { unit: 'year' },
-                        grid: { display: false }
-                    },
-                    y: {
-                        ticks: {
-                            callback: function(value) { return prefix + formatLargeNumber(value); }
-                        }
-                    }
                 }
             }
-        };
-        new Chart(ctx, config);
+        });
     }
 
     function setupSWSLayoutInteractivity($contentArea) {
@@ -591,15 +669,7 @@
                         if (response.success && response.data.matches && response.data.matches.length > 0) {
                             const $ul = $('<ul>').addClass('jtw-symbol-results-list');
                             response.data.matches.forEach(function(match) {
-                                const placeholderImgUrl = 'https://beardedinvestor.com/wp-content/uploads/2025/04/Dictionary-Item-Graphic.png';
                                 
-                                let iconHtml;
-                                if (match.icon_url) {
-                                    iconHtml = `<img src="${match.icon_url}" class="jtw-result-icon" alt="${match.name} logo" onerror="this.onerror=null; this.src='${placeholderImgUrl}';">`;
-                                } else {
-                                    iconHtml = `<img src="${placeholderImgUrl}" class="jtw-result-icon" alt="Placeholder">`;
-                                }
-
                                 let flagHtml = '';
                                 if (match.locale && match.locale.toLowerCase() !== 'us') {
                                     flagHtml = `<img class="jtw-result-flag" src="https://flagcdn.com/w20/${match.locale.toLowerCase()}.png" alt="${match.locale.toUpperCase()} flag">`;
@@ -608,9 +678,6 @@
                                 const $li = $('<li>').addClass('jtw-header-result-item').attr('data-symbol', match.ticker);
 
                                 const itemHtml = `
-                                    <div class="jtw-result-icon-wrapper">
-                                        ${iconHtml}
-                                    </div>
                                     <div class="jtw-result-details">
                                         <div class="jtw-result-name">${match.name}</div>
                                         <div class="jtw-result-meta">
@@ -697,6 +764,8 @@
                                 
                                 if (section === 'overview') {
                                     initializeOverviewChart($placeholder);
+                                } else if (section === 'historical-data') {
+                                    initializeHistoricalDataSection($placeholder);
                                 } else if (section === 'past-performance') {
                                     initializeHistoricalCharts($placeholder);
                                 } else if (section === 'intrinsic-valuation') {

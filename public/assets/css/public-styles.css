@@ -97,29 +97,6 @@
     gap: 15px;
 }
 
-.jtw-result-icon-wrapper {
-    flex-shrink: 0;
-}
-
-.jtw-result-icon {
-    width: 75px;
-    height: 75px;
-    border-radius: 6px;
-    object-fit: contain;
-    background-color: #fff;
-    border: 1px solid var(--jtw-border-color-light);
-}
-
-.jtw-result-icon-placeholder {
-    width: 75px;
-    height: 75px;
-    border-radius: 6px;
-    background-color: #e9ecef;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
 .jtw-result-details {
     display: flex;
     flex-direction: column;
@@ -217,7 +194,6 @@
 .jtw-company-stats .jtw-metric-title { font-size: 0.85em; text-transform: none; letter-spacing: 0; color: var(--jtw-text-light); }
 .jtw-company-stats .jtw-metric-value { font-size: 1.4em; }
 
-/* **NEW**: Styles for Overview Section Refactor */
 .jtw-overview-main-col {
     display: flex;
     flex-direction: column;
@@ -234,16 +210,6 @@
 }
 .jtw-read-more:hover {
     text-decoration: underline;
-}
-.jtw-overview-price-chart h5 {
-    text-align: center;
-    margin-top: 0;
-    margin-bottom: 15px;
-    font-size: 1em;
-    color: var(--jtw-text-dark);
-}
-.jtw-overview-price-chart .jtw-chart-wrapper {
-    height: 350px;
 }
 
 .jtw-results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
@@ -544,11 +510,6 @@
     .jtw-header-result-item {
         gap: 12px;
     }
-    .jtw-result-icon,
-    .jtw-result-icon-placeholder {
-        width: 40px;
-        height: 40px;
-    }
     .jtw-result-name {
         font-size: 0.9em;
     }
@@ -651,4 +612,83 @@
 .jtw-button-primary:hover {
     background-color: #0056b3;
     color: #fff;
+}
+
+/* --- Historical Data Section (Value Line Style) --- */
+.jtw-historical-combined-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.jtw-historical-inner-wrapper {
+    position: relative;
+    /* Dynamic width will be set by JS */
+}
+
+.jtw-historical-chart-container {
+    height: 450px;
+    margin-bottom: 0;
+    box-sizing: border-box;
+}
+
+.jtw-historical-table-wrapper {
+    width: 100%;
+    overflow-x: hidden; /* Scrolling is handled by the parent */
+    margin-top: -20px; /* Overlap with chart's bottom padding */
+    position: relative;
+    z-index: 1;
+}
+
+.jtw-historical-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+    table-layout: fixed; /* Crucial for alignment */
+}
+
+.jtw-historical-table th,
+.jtw-historical-table td {
+    padding: 8px 10px;
+    text-align: right;
+    white-space: nowrap;
+    border-left: 1px solid var(--jtw-border-color-light);
+    width: 110px; /* Width for year columns */
+}
+
+.jtw-historical-table thead th {
+    background-color: transparent;
+    border: none;
+    font-weight: 600;
+    text-align: center;
+    color: var(--jtw-text-medium);
+    padding-top: 20px; /* Add space for chart legend */
+}
+
+.jtw-historical-table tbody tr {
+    border-bottom: 1px solid var(--jtw-border-color-light);
+}
+
+.jtw-historical-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.jtw-historical-table tbody tr:nth-child(even) {
+    background-color: var(--jtw-page-bg);
+}
+
+.jtw-historical-table th:first-child,
+.jtw-historical-table td:first-child {
+    text-align: left;
+    font-weight: bold;
+    position: sticky;
+    left: 0;
+    background-color: var(--jtw-content-bg);
+    z-index: 2;
+    border-right: 1px solid var(--jtw-border-color);
+    width: 150px; /* Wider for metric labels */
+}
+
+.jtw-historical-table tbody tr:nth-child(even) td:first-child {
+    background-color: var(--jtw-page-bg);
 }
